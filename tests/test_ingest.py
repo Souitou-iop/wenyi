@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+import zipfile
 
 from trans_novel.ingest.segmenter import (
     load_document, chapter_batches, split_long_segments, _split_text)
@@ -200,6 +201,39 @@ class TestEpubIngest(unittest.TestCase):
             self.assertIsNotNone(s.anchor)
             self.assertIn(s.anchor, ch1.template)
         self.assertIsNotNone(ch1.href)
+
+    def test_epub_ignores_internal_file_title_when_no_heading(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "novel.epub")
+            with zipfile.ZipFile(p, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("mimetype", "application/epub+zip", zipfile.ZIP_STORED)
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version="1.0"?>
+<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+<rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles>
+</container>""",
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Book</dc:title></metadata>
+<manifest><item id="cUH.xhtml" href="cUH.xhtml" media-type="application/xhtml+xml"/></manifest>
+<spine><itemref idref="cUH.xhtml"/></spine>
+</package>""",
+                )
+                zf.writestr(
+                    "OEBPS/cUH.xhtml",
+                    """<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>cUH</title></head><body><p>Body text.</p></body>
+</html>""",
+                )
+
+            doc = load_document(p, "en", "zh")
+
+        self.assertEqual(len(doc.chapters), 1)
+        self.assertEqual(doc.chapters[0].title, "")
 
 
 if __name__ == "__main__":

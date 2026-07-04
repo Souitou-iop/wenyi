@@ -70,7 +70,12 @@ def _parse_opf(zf: zipfile.ZipFile, opf_path: str) -> tuple[str, list[str]]:
     return title, hrefs
 
 
-def _extract_chapter(html: str, chapter_index: int) -> tuple[str, list[Segment], str]:
+def _looks_like_internal_title(title: str, href: str) -> bool:
+    base = posixpath.basename(href).rsplit(".", 1)[0]
+    return bool(base) and title.strip() == base
+
+
+def _extract_chapter(html: str, chapter_index: int, href: str) -> tuple[str, list[Segment], str]:
     """解析单个 XHTML 文档，返回 (标题, segments, 带标记的模板 HTML)。"""
     soup = BeautifulSoup(html, "html.parser")
     segments: list[Segment] = []
@@ -88,16 +93,18 @@ def _extract_chapter(html: str, chapter_index: int) -> tuple[str, list[Segment],
         segments.append(Segment(index=idx, source=text, kind=kind, anchor=anchor))
         idx += 1
 
-    # 标题：首个 heading 文本 → <title> → 兜底
+    # 标题：首个 heading 文本 → 非内部文件名的 <title> → 无标题。
+    # 一些 EPUB 把 XHTML 文件名写进 <title>，如 cUH.xhtml 的 <title>cUH</title>，
+    # 这不是读者可见章节标题，不能进入目录或标题翻译。
     title = ""
     for s in segments:
         if s.kind == KIND_HEADING:
             title = s.source
             break
     if not title and soup.title and soup.title.string:
-        title = soup.title.string.strip()
-    if not title:
-        title = f"第{chapter_index + 1}章"
+        candidate = soup.title.string.strip()
+        if not _looks_like_internal_title(candidate, href):
+            title = candidate
 
     return title, segments, str(soup)
 
@@ -114,7 +121,7 @@ def read_epub(path: str, source_lang: str, target_lang: str) -> Document:
             if href not in names:
                 continue
             html = zf.read(href).decode("utf-8", errors="replace")
-            title, segments, template = _extract_chapter(html, ci)
+            title, segments, template = _extract_chapter(html, ci, href)
             if not any(s.source.strip() for s in segments):
                 continue  # 无正文（封面/版权页等）→ writer 原样拷贝，不作为章节
             chapters.append(

@@ -288,15 +288,17 @@ class Orchestrator:
 
         m = store.load_manifest()
         chapters = m.get("chapters", [])
-        if (m.get("title_translated")
-                and all(c.get("title_translated") for c in chapters)):
-            store.log_event("titles_skipped", reason="already_translated")
-            return  # 已译，断点续跑不重复调用
 
         # 标题压成单行，避免内嵌换行破坏 numbered 对齐
         def _flat(s: str) -> str:
             return " ".join((s or "").split())
-        titles = [_flat(m.get("title", ""))] + [_flat(c.get("title", "")) for c in chapters]
+        titled_chapters = [c for c in chapters if _flat(c.get("title", ""))]
+        if (m.get("title_translated")
+                and all(c.get("title_translated") for c in titled_chapters)):
+            store.log_event("titles_skipped", reason="already_translated")
+            return  # 已译，断点续跑不重复调用
+
+        titles = [_flat(m.get("title", ""))] + [_flat(c.get("title", "")) for c in titled_chapters]
         if not any(t.strip() for t in titles):
             return
         system = prompts.render("title_translator_system",
@@ -323,7 +325,7 @@ class Orchestrator:
             return
         out = [str(t).strip() for t in out]
         m["title_translated"] = out[0] or m.get("title")
-        for c, t in zip(chapters, out[1:]):
+        for c, t in zip(titled_chapters, out[1:]):
             c["title_translated"] = t or c.get("title")
         store.save_manifest(m)
         store.log_event(
