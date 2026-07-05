@@ -207,7 +207,7 @@ class Orchestrator:
                     ci, store, glossary, context, style, book_synopsis,
                     progress=progress, done=done, total=total)
                 store.save_context(context.to_dict())
-            # 全书译完后翻译书名与各章标题（供目录/文件名使用，借术语表保持专名一致）
+            # 全书译完后翻译各章标题和目录项（书名保持原文，借术语表保持专名一致）
             if not store.pending_chapters():
                 self._translate_titles(store, glossary)
         finally:
@@ -277,11 +277,11 @@ class Orchestrator:
             store.log_event("book_synopsis_saved", synopsis=synopsis)
         return synopsis
 
-    # ── 书名 / 章节标题翻译（目录与输出文件名用）──────────────────────────────
+    # ── 章节标题 / 目录项翻译（书名保持原文）──────────────────────────────
     def _translate_titles(self, store: RunStore, glossary: GlossaryStore) -> None:
-        """把书名 + 各章标题整体翻成中文，写回 manifest（幂等：已全部译过则跳过）。
+        """把各章标题和额外目录项翻成中文，写回 manifest（幂等：已全部译过则跳过）。
 
-        借术语表保证专名一致；一次调用翻译全部标题，互为上下文更连贯。
+        书名保持原文，不写 title_translated；借术语表保证章节标题里的专名一致。
         """
         from ..agents import prompts
 
@@ -303,15 +303,15 @@ class Orchestrator:
         ]
 
         titled_chapters = [c for c in chapters if _flat(c.get("title", ""))]
-        if (m.get("title_translated")
-                and all(c.get("title_translated") for c in titled_chapters)
+        m.pop("title_translated", None)
+        if (all(c.get("title_translated") for c in titled_chapters)
                 and all(e.get("title_translated") for e in toc_entries)):
+            store.save_manifest(m)
             store.log_event("titles_skipped", reason="already_translated")
             return  # 已译，断点续跑不重复调用
 
         titles = (
-            [_flat(m.get("title", ""))]
-            + [_flat(c.get("title", "")) for c in titled_chapters]
+            [_flat(c.get("title", "")) for c in titled_chapters]
             + [_flat(e.get("title", "")) for e in toc_entries]
         )
         if not any(t.strip() for t in titles):
@@ -339,9 +339,8 @@ class Orchestrator:
             )
             return
         out = [str(t).strip() for t in out]
-        m["title_translated"] = out[0] or m.get("title")
-        chapter_out = out[1:1 + len(titled_chapters)]
-        toc_out = out[1 + len(titled_chapters):]
+        chapter_out = out[:len(titled_chapters)]
+        toc_out = out[len(titled_chapters):]
         for c, t in zip(titled_chapters, chapter_out):
             c["title_translated"] = t or c.get("title")
         for e, t in zip(toc_entries, toc_out):

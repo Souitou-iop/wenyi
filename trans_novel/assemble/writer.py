@@ -29,7 +29,7 @@ def _sanitize_filename(name: str, fallback: str = "translated") -> str:
 def _default_out(source_path: str, out_format: str, title: str | None = None) -> str:
     ext = ".epub" if out_format == "epub" else ".txt"
     if title and title.strip():
-        # 用译名作输出文件名，落在源文件同目录
+        # 保留给显式调用方使用；默认 assemble 不传书名译名。
         d = os.path.dirname(os.path.abspath(source_path))
         return os.path.join(d, _sanitize_filename(title) + ext)
     base, _ = os.path.splitext(source_path)
@@ -105,7 +105,7 @@ def _attr_str(value: object) -> str:
 
 
 def _rewrite_opf_title(data: bytes, book_title: str) -> bytes:
-    """把 OPF 里的 dc:title 改为译名（仅首个主标题）。失败则原样返回。"""
+    """把 OPF 里的 dc:title 改为指定标题（仅首个主标题）。失败则原样返回。"""
     if not book_title:
         return data
     try:
@@ -161,7 +161,7 @@ def _assemble_epub(store: RunStore, source_path: str, out_path: str) -> str:
         if ch.href and ch.template:
             rendered[ch.href] = _render_chapter_html(ch)
 
-    # 目录标题映射（文件名 → 译名），书名译名
+    # 目录标题映射（文件名 → 译名）；书名保持原文，不改 OPF 主标题。
     title_by_base: dict[str, str] = {}
     for c in m["chapters"]:
         base = _base_no_frag(c.get("href") or "")
@@ -181,7 +181,7 @@ def _assemble_epub(store: RunStore, source_path: str, out_path: str) -> str:
         title = title_value.strip() if isinstance(title_value, str) else ""
         if base and title:
             title_by_base[base] = title
-    book_title = (m.get("title_translated") or "").strip()
+    book_title = ""
 
     with zipfile.ZipFile(source_path, "r") as zin:
         infos = zin.infolist()
@@ -215,7 +215,7 @@ def _build_epub_from_chapters(store: RunStore, out_path: str) -> str:
     from ebooklib import epub
 
     m = store.load_manifest()
-    title = m.get("title_translated") or m.get("title", "translated")
+    title = m.get("title", "translated")
     lang = m.get("target_lang", "zh")
 
     book = epub.EpubBook()
@@ -265,11 +265,10 @@ def assemble(
     out_format="txt"：无论原文格式，按章重建为纯文本。
     """
     m = store.load_manifest()
-    title_zh = m.get("title_translated") or ""
     if out_format == "txt":
-        return _assemble_text(store, out_path or _default_out(source_path, "txt", title_zh))
+        return _assemble_text(store, out_path or _default_out(source_path, "txt", ""))
     # epub
-    out_path = out_path or _default_out(source_path, "epub", title_zh)
+    out_path = out_path or _default_out(source_path, "epub", "")
     if m["fmt"] == "epub":
         return _assemble_epub(store, source_path, out_path)
     # fb2 / text → 从章节数据生成规范 EPUB

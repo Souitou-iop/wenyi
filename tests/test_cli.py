@@ -91,6 +91,50 @@ class TestCliConfig(unittest.TestCase):
         self.assertFalse(captured["polish"])
         self.assertTrue(captured["run_all"]["do_qa"])
 
+    def test_resume_delegates_to_translate_without_audit_argument(self):
+        cfg = Config.from_dict(
+            {
+                "llm": {"provider": "fake", "tiers": {"strong": {"model": "p"}}},
+                "pipeline": {"polish": True, "consistency_qa": False},
+            }
+        )
+        captured = {}
+
+        class FakeOrchestrator:
+            def __init__(self, config):
+                captured["polish"] = config.pipeline.polish
+
+            def run_all(self, input_path, **kwargs):
+                captured["input_path"] = input_path
+                captured["run_all"] = kwargs
+                return {
+                    "report": {
+                        "summary": {
+                            "chapters_done": 1,
+                            "chapters_total": 1,
+                            "terms": 0,
+                        }
+                    },
+                    "qa_issues": [],
+                    "output": "out.txt",
+                }
+
+        with (
+            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
+        ):
+            result = CliRunner().invoke(
+                app,
+                ["resume", "input.txt", "--format", "txt"],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured["input_path"], "input.txt")
+        self.assertEqual(captured["run_all"]["out_format"], "txt")
+        self.assertIsNone(captured["run_all"]["out_path"])
+        self.assertIsNone(captured["run_all"]["do_qa"])
+        self.assertTrue(captured["polish"])
+
 
 if __name__ == "__main__":
     unittest.main()

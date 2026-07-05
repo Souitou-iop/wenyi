@@ -171,18 +171,15 @@ class GlossaryAuditor(Agent):
             if dirty:
                 store.save_chapter(ch)
 
-        # 同步改写已译的书名/章节标题，保持目录与输出文件名一致
+        # 同步改写已译的章节标题，保持目录一致；书名保持原文，清理旧译名字段。
         man_dirty = False
-        old_title = m.get("title_translated")
-        nt = _apply(old_title) if isinstance(old_title, str) else old_title
-        if nt != old_title:
-            m["title_translated"] = nt
+        if "title_translated" in m:
+            old_title = m.pop("title_translated")
             man_dirty = True
             store.log_event(
-                "glossary_title_rewrite_applied",
+                "glossary_book_title_translation_removed",
                 title=True,
                 before=old_title,
-                after=nt,
                 replace_map=replace_map,
             )
         for c in m["chapters"]:

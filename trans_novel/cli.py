@@ -61,7 +61,7 @@ def translate(
         None, "--chapter", help="只翻指定章（调试用，不做收尾）"
     ),
     fmt: str = typer.Option("epub", "--format", help="输出格式：epub | txt"),
-    out: Optional[str] = typer.Option(None, "--out", help="输出路径（默认 <译名>.<ext>，落在源文件目录）"),
+    out: Optional[str] = typer.Option(None, "--out", help="输出路径（默认 <源文件名>.zh.<ext>，落在源文件目录）"),
     polish: Optional[bool] = typer.Option(
         None,
         "--polish/--no-polish",
@@ -128,7 +128,6 @@ def resume(
         fmt=fmt,
         out=None,
         polish=None,
-        audit=None,
         qa=None,
     )
 

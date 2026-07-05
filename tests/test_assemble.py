@@ -42,9 +42,8 @@ class TestAssembleText(unittest.TestCase):
             write_sample_txt(txt)
             store, _ = _run(txt, os.path.join(d, "state"))
             out = assemble(store, txt, out_format="txt")
-            # 文件名用译名（fake 书名译文为「标题0」）
             self.assertTrue(out.endswith(".txt"))
-            self.assertIn("标题0", os.path.basename(out))
+            self.assertEqual(os.path.basename(out), "novel.zh.txt")
             with open(out, encoding="utf-8") as f:
                 content = f.read()
             self.assertIn("润0", content)  # 译文已写入
@@ -56,7 +55,7 @@ class TestAssembleText(unittest.TestCase):
             store, _ = _run(txt, os.path.join(d, "state"))
             out = assemble(store, txt, out_format="epub")
             self.assertTrue(out.endswith(".epub"))
-            self.assertIn("标题0", os.path.basename(out))
+            self.assertEqual(os.path.basename(out), "novel.zh.epub")
             self.assertTrue(zipfile.is_zipfile(out))
             # 重新解析生成的 EPUB，应能读出章节且含译文
             doc = load_document(out, "ja", "zh")
@@ -81,21 +80,20 @@ class TestAssembleEpub(unittest.TestCase):
 
 
 class TestTitleTranslation(unittest.TestCase):
-    def test_manifest_and_opf_title_translated(self):
+    def test_manifest_keeps_book_title_and_translates_chapter_titles(self):
         with tempfile.TemporaryDirectory() as d:
             ep = os.path.join(d, "novel.epub")
             write_sample_epub(ep)
             store, _ = _run(ep, os.path.join(d, "state"))
-            # 书名 + 各章标题都译出并写回 manifest（fake：标题0/1/2）
+            # 书名不翻译；章节标题译出并写回 manifest（fake：标题0/1）
             m = store.load_manifest()
-            self.assertEqual(m["title_translated"], "标题0")
+            self.assertNotIn("title_translated", m)
             self.assertTrue(all(c.get("title_translated") for c in m["chapters"]))
             out = assemble(store, ep, out_format="epub")
             with zipfile.ZipFile(out) as z:
                 opf = z.read("OEBPS/content.opf").decode("utf-8")
-            self.assertIn("标题0", opf)            # OPF 书名已改为译名
-            self.assertNotIn("サンプル小説", opf)   # 原书名已替换
-            self.assertIn("标题0", os.path.basename(out))  # 文件名用译名
+            self.assertIn("サンプル小説", opf)       # OPF 书名保持原文
+            self.assertEqual(os.path.basename(out), "novel.zh.epub")
 
     def test_rewrite_targets_propagates_to_titles(self):
         from trans_novel.agents.glossary_auditor import GlossaryAuditor
@@ -111,7 +109,7 @@ class TestTitleTranslation(unittest.TestCase):
             GlossaryAuditor._rewrite_targets(store, g, {"佳穂": "佳穗"})
             g.close()
             m2 = store.load_manifest()
-            self.assertEqual(m2["title_translated"], "佳穗传")          # 书名已规范
+            self.assertNotIn("title_translated", m2)                    # 书名译名字段被清理
             self.assertEqual(m2["chapters"][0]["title_translated"], "佳穗登场")  # 章名已规范
 
     def test_rewrite_nav_and_ncx_labels(self):
