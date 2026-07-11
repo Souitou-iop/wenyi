@@ -14,6 +14,20 @@ export DEEPSEEK_API_KEY=sk-...
 uv run trans-novel translate book.epub
 ```
 
+## macOS 原生 App
+
+仓库包含支持 macOS 15+ 的 SwiftUI 客户端。它使用用户本机的 Python 3.10+ 运行同一套翻译引擎，支持书架管理、多本图书无限制并行、断点续跑、独立进度和完成通知。
+
+开发运行：
+
+```bash
+./script/build_and_run.sh --verify
+```
+
+首次使用请在设置中选择 Python 3.10+、统一输出目录，并填写 OpenAI 兼容端点及 strong、cheap、fast 三档模型。App 会使用该解释器在 `~/Library/Application Support/文译/Python/` 创建专用 venv 并自动安装依赖，不会修改用户原 Python 环境。
+
+API Key 不使用 Keychain，而以权限 `0600` 的明文文件保存在 `~/Library/Application Support/文译/settings.json`。这避免启动时出现系统密码提示，但当前用户账户下具有文件读取权限的软件仍可能读取它。
+
 翻译完成后，默认在源文件所在目录的 `output/` 中生成单语中文版 `book.zh.epub`；也可按需生成原文对照版 `book.zh-bi.epub`。运行状态、章节 JSON、术语库和报告写入 `state/`。中断后可继续：
 
 ```bash

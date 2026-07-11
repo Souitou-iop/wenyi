@@ -1,0 +1,511 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		03A35942E5868DA98D96136C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B9BBE8122F275FD03D3E51C /* SettingsView.swift */; };
+		217240BE13485C0931EEC050 /* trans_novel in Resources */ = {isa = PBXBuildFile; fileRef = D8091930842BE6AA62035491 /* trans_novel */; };
+		3AA4260B0BDAB550FA4F1FC4 /* PythonDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE263297B357962FF4A93504 /* PythonDetector.swift */; };
+		40AEDD2B4A74FE1AF60F46E4 /* JSONLineDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C42ACDE8D9E2B080EE51052 /* JSONLineDecoder.swift */; };
+		41EAF6DD56C320EC35A1630D /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 527EB91029A0359DF89F3CE6 /* LibraryStore.swift */; };
+		49619AAAA35D9EB5264B4DF8 /* TranslationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C6037C517A6A8F4FBCCB4B7 /* TranslationManager.swift */; };
+		64A1C31DB4AF1A24AF0F3BA2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A10A0683DC04A4E1DBA0BF /* ContentView.swift */; };
+		6A5BA0785E861C6B1D55F6BC /* SecureSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C51C8A21BCD9AB17C50AF89 /* SecureSettingsStoreTests.swift */; };
+		72AD2DB676DE88B58D3BE106 /* PythonEnvironmentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB117E7087922E16D09297E /* PythonEnvironmentManager.swift */; };
+		92B754C11B266C3BD2263FC8 /* AppModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF12471B1E277A393529769B /* AppModels.swift */; };
+		A0C15ECDADAAC84BB4EB5C76 /* RuntimeClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA63B7260A500FE2EFB3340B /* RuntimeClock.swift */; };
+		B7EF60EFD7C10DF487E6B6B6 /* config.yaml in Resources */ = {isa = PBXBuildFile; fileRef = D56C0102BBD09F986990F424 /* config.yaml */; };
+		C29BB6DA5A16B9F06B427C91 /* JSONLineDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93CC6E64F81DACC794445E35 /* JSONLineDecoderTests.swift */; };
+		C56C4B586A53E3BA5CE24433 /* ProgressSnapshotReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02CC69547EAFFC8DDC392F94 /* ProgressSnapshotReader.swift */; };
+		DBD420D5E6BE1B261505B133 /* ConnectionTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16DB963BB5AB077F45CE6994 /* ConnectionTester.swift */; };
+		E9003EDA9EB78338B3E9525C /* BookInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA62F2A0C0203A576171FDC2 /* BookInspector.swift */; };
+		FD0B700ACDB4D5BF50C7BB24 /* WenyiMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9CA586CF18FE1DDD05B7B5 /* WenyiMacApp.swift */; };
+		FE3AE20EC6723E2931313057 /* SecureSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1188267C28D5AED5436FE487 /* SecureSettingsStore.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8BE450089998E40232C171B4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AF10866EC3E9A34240B19919 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CD929CA2BA5528FDBE6DA301;
+			remoteInfo = WenyiMac;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		02CC69547EAFFC8DDC392F94 /* ProgressSnapshotReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressSnapshotReader.swift; sourceTree = "<group>"; };
+		0E9CA586CF18FE1DDD05B7B5 /* WenyiMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WenyiMacApp.swift; sourceTree = "<group>"; };
+		1188267C28D5AED5436FE487 /* SecureSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureSettingsStore.swift; sourceTree = "<group>"; };
+		16DB963BB5AB077F45CE6994 /* ConnectionTester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionTester.swift; sourceTree = "<group>"; };
+		1C42ACDE8D9E2B080EE51052 /* JSONLineDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONLineDecoder.swift; sourceTree = "<group>"; };
+		504BD15C317FEABFEA275659 /* WenyiMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WenyiMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		527EB91029A0359DF89F3CE6 /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
+		6C51C8A21BCD9AB17C50AF89 /* SecureSettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureSettingsStoreTests.swift; sourceTree = "<group>"; };
+		8B9BBE8122F275FD03D3E51C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		8C6037C517A6A8F4FBCCB4B7 /* TranslationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationManager.swift; sourceTree = "<group>"; };
+		8F77DA9C8F76E5ADAB1D87F8 /* WenyiMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WenyiMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		93CC6E64F81DACC794445E35 /* JSONLineDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONLineDecoderTests.swift; sourceTree = "<group>"; };
+		BBB117E7087922E16D09297E /* PythonEnvironmentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonEnvironmentManager.swift; sourceTree = "<group>"; };
+		C9A10A0683DC04A4E1DBA0BF /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		CA63B7260A500FE2EFB3340B /* RuntimeClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeClock.swift; sourceTree = "<group>"; };
+		CE263297B357962FF4A93504 /* PythonDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonDetector.swift; sourceTree = "<group>"; };
+		D56C0102BBD09F986990F424 /* config.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = config.yaml; sourceTree = "<group>"; };
+		D8091930842BE6AA62035491 /* trans_novel */ = {isa = PBXFileReference; lastKnownFileType = folder; path = trans_novel; sourceTree = SOURCE_ROOT; };
+		DA62F2A0C0203A576171FDC2 /* BookInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookInspector.swift; sourceTree = "<group>"; };
+		FF12471B1E277A393529769B /* AppModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModels.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		1530010233F947EB537A7BD6 = {
+			isa = PBXGroup;
+			children = (
+				D56C0102BBD09F986990F424 /* config.yaml */,
+				D8091930842BE6AA62035491 /* trans_novel */,
+				7B7B0A60EE46A9139F5152B3 /* WenyiMac */,
+				9227BE27F436D4456043B8D0 /* WenyiMacTests */,
+				1EFE0CCE248CBD2B0E1BECB9 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1EFE0CCE248CBD2B0E1BECB9 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				504BD15C317FEABFEA275659 /* WenyiMac.app */,
+				8F77DA9C8F76E5ADAB1D87F8 /* WenyiMacTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		1F17F6561BC5EDFEBE0C2B1A /* App */ = {
+			isa = PBXGroup;
+			children = (
+				0E9CA586CF18FE1DDD05B7B5 /* WenyiMacApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		5362F832EBBAA687EBAC5840 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				DA62F2A0C0203A576171FDC2 /* BookInspector.swift */,
+				16DB963BB5AB077F45CE6994 /* ConnectionTester.swift */,
+				1C42ACDE8D9E2B080EE51052 /* JSONLineDecoder.swift */,
+				02CC69547EAFFC8DDC392F94 /* ProgressSnapshotReader.swift */,
+				CE263297B357962FF4A93504 /* PythonDetector.swift */,
+				BBB117E7087922E16D09297E /* PythonEnvironmentManager.swift */,
+				CA63B7260A500FE2EFB3340B /* RuntimeClock.swift */,
+				8C6037C517A6A8F4FBCCB4B7 /* TranslationManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		75FFA035743316AEB61C9861 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				C9A10A0683DC04A4E1DBA0BF /* ContentView.swift */,
+				8B9BBE8122F275FD03D3E51C /* SettingsView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		7B7B0A60EE46A9139F5152B3 /* WenyiMac */ = {
+			isa = PBXGroup;
+			children = (
+				1F17F6561BC5EDFEBE0C2B1A /* App */,
+				8BBFD53CC5957420B1C360A8 /* Models */,
+				5362F832EBBAA687EBAC5840 /* Services */,
+				BA71F62B1F382E67DC58A803 /* Stores */,
+				75FFA035743316AEB61C9861 /* Views */,
+			);
+			name = WenyiMac;
+			path = macos/WenyiMac;
+			sourceTree = "<group>";
+		};
+		8BBFD53CC5957420B1C360A8 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				FF12471B1E277A393529769B /* AppModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		9227BE27F436D4456043B8D0 /* WenyiMacTests */ = {
+			isa = PBXGroup;
+			children = (
+				93CC6E64F81DACC794445E35 /* JSONLineDecoderTests.swift */,
+				6C51C8A21BCD9AB17C50AF89 /* SecureSettingsStoreTests.swift */,
+			);
+			name = WenyiMacTests;
+			path = macos/WenyiMacTests;
+			sourceTree = "<group>";
+		};
+		BA71F62B1F382E67DC58A803 /* Stores */ = {
+			isa = PBXGroup;
+			children = (
+				527EB91029A0359DF89F3CE6 /* LibraryStore.swift */,
+				1188267C28D5AED5436FE487 /* SecureSettingsStore.swift */,
+			);
+			path = Stores;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9DD13B314C63CA30104A1865 /* WenyiMacTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2B8534CF1AFD4E50EC3BFDBD /* Build configuration list for PBXNativeTarget "WenyiMacTests" */;
+			buildPhases = (
+				5DBD037A7CC21EB36A0810F8 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4A69B4DB5A4F2D28DC000588 /* PBXTargetDependency */,
+			);
+			name = WenyiMacTests;
+			packageProductDependencies = (
+			);
+			productName = WenyiMacTests;
+			productReference = 8F77DA9C8F76E5ADAB1D87F8 /* WenyiMacTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		CD929CA2BA5528FDBE6DA301 /* WenyiMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B6E5D1B8A3F9EA5FE6A8BFBF /* Build configuration list for PBXNativeTarget "WenyiMac" */;
+			buildPhases = (
+				16A20E137EABA0671B7A4954 /* Sources */,
+				D9DDDB0DD45BFE1549DE0EB5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WenyiMac;
+			packageProductDependencies = (
+			);
+			productName = WenyiMac;
+			productReference = 504BD15C317FEABFEA275659 /* WenyiMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AF10866EC3E9A34240B19919 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					CD929CA2BA5528FDBE6DA301 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 2ED9C03E7801B74731C7D837 /* Build configuration list for PBXProject "WenyiMac" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1530010233F947EB537A7BD6;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1EFE0CCE248CBD2B0E1BECB9 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				CD929CA2BA5528FDBE6DA301 /* WenyiMac */,
+				9DD13B314C63CA30104A1865 /* WenyiMacTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D9DDDB0DD45BFE1549DE0EB5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B7EF60EFD7C10DF487E6B6B6 /* config.yaml in Resources */,
+				217240BE13485C0931EEC050 /* trans_novel in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		16A20E137EABA0671B7A4954 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				92B754C11B266C3BD2263FC8 /* AppModels.swift in Sources */,
+				E9003EDA9EB78338B3E9525C /* BookInspector.swift in Sources */,
+				DBD420D5E6BE1B261505B133 /* ConnectionTester.swift in Sources */,
+				64A1C31DB4AF1A24AF0F3BA2 /* ContentView.swift in Sources */,
+				40AEDD2B4A74FE1AF60F46E4 /* JSONLineDecoder.swift in Sources */,
+				41EAF6DD56C320EC35A1630D /* LibraryStore.swift in Sources */,
+				C56C4B586A53E3BA5CE24433 /* ProgressSnapshotReader.swift in Sources */,
+				3AA4260B0BDAB550FA4F1FC4 /* PythonDetector.swift in Sources */,
+				72AD2DB676DE88B58D3BE106 /* PythonEnvironmentManager.swift in Sources */,
+				A0C15ECDADAAC84BB4EB5C76 /* RuntimeClock.swift in Sources */,
+				FE3AE20EC6723E2931313057 /* SecureSettingsStore.swift in Sources */,
+				03A35942E5868DA98D96136C /* SettingsView.swift in Sources */,
+				49619AAAA35D9EB5264B4DF8 /* TranslationManager.swift in Sources */,
+				FD0B700ACDB4D5BF50C7BB24 /* WenyiMacApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5DBD037A7CC21EB36A0810F8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C29BB6DA5A16B9F06B427C91 /* JSONLineDecoderTests.swift in Sources */,
+				6A5BA0785E861C6B1D55F6BC /* SecureSettingsStoreTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		4A69B4DB5A4F2D28DC000588 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CD929CA2BA5528FDBE6DA301 /* WenyiMac */;
+			targetProxy = 8BE450089998E40232C171B4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		09C3425191044B4E31F5CFB6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		31F42C5902F0B3CD7BCB15BD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "文译";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = win.ebato.wenyi;
+				PRODUCT_NAME = WenyiMac;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		7EAFC1FA05500C65EC31E852 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "文译";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = win.ebato.wenyi;
+				PRODUCT_NAME = WenyiMac;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		D82D0A241DC31113AB0FE011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = win.ebato.WenyiMacTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WenyiMac.app/Contents/MacOS/WenyiMac";
+			};
+			name = Debug;
+		};
+		E0046364B10CDF30A36B2B18 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = win.ebato.WenyiMacTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WenyiMac.app/Contents/MacOS/WenyiMac";
+			};
+			name = Release;
+		};
+		F78DB67E88AB11C24968D273 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2B8534CF1AFD4E50EC3BFDBD /* Build configuration list for PBXNativeTarget "WenyiMacTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D82D0A241DC31113AB0FE011 /* Debug */,
+				E0046364B10CDF30A36B2B18 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2ED9C03E7801B74731C7D837 /* Build configuration list for PBXProject "WenyiMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F78DB67E88AB11C24968D273 /* Debug */,
+				09C3425191044B4E31F5CFB6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B6E5D1B8A3F9EA5FE6A8BFBF /* Build configuration list for PBXNativeTarget "WenyiMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7EAFC1FA05500C65EC31E852 /* Debug */,
+				31F42C5902F0B3CD7BCB15BD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AF10866EC3E9A34240B19919 /* Project object */;
+}

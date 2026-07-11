@@ -1,0 +1,49 @@
+name: WenyiMac
+options:
+  bundleIdPrefix: win.ebato
+  deploymentTarget:
+    macOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+targets:
+  WenyiMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: macos/WenyiMac
+      - path: trans_novel
+        type: folder
+        buildPhase: resources
+      - path: config.yaml
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: win.ebato.wenyi
+        PRODUCT_NAME: WenyiMac
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_APP_SANDBOX: NO
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: 文译
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
+  WenyiMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: macos/WenyiMacTests
+    dependencies:
+      - target: WenyiMac
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  WenyiMac:
+    build:
+      targets:
+        WenyiMac: all
+        WenyiMacTests: [test]
+    test:
+      targets:
+        - WenyiMacTests
