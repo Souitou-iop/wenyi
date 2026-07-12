@@ -164,6 +164,52 @@ def _hit_rate(hit: int, miss: int) -> float:
     return round(hit / total, 4) if total else 0.0
 
 
+def _usage_summary_from_tiers(by_tier: dict[str, dict[str, int]]) -> dict[str, Any]:
+    """由各档计数生成规范汇总，并重新计算总计与缓存命中率。"""
+    tiers: dict[str, dict[str, Any]] = {
+        tier: {field: int(values.get(field, 0)) for field in _USAGE_FIELDS}
+        for tier, values in by_tier.items()
+    }
+    totals: dict[str, Any] = dict.fromkeys(_USAGE_FIELDS, 0)
+    for values in tiers.values():
+        for field in _USAGE_FIELDS:
+            totals[field] += values[field]
+    for slot in (*tiers.values(), totals):
+        slot["cache_hit_rate"] = _hit_rate(
+            slot["cache_hit_tokens"], slot["cache_miss_tokens"]
+        )
+    return {"totals": totals, "by_tier": tiers}
+
+
+def usage_delta(current: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
+    """计算两个累计快照之间的非负增量，用于避免重复落盘。"""
+    current_tiers = current.get("by_tier") or {}
+    previous_tiers = previous.get("by_tier") or {}
+    delta: dict[str, dict[str, int]] = {}
+    for tier, values in current_tiers.items():
+        old = previous_tiers.get(tier) or {}
+        slot = {
+            field: max(0, _usage_int(values, field) - _usage_int(old, field))
+            for field in _USAGE_FIELDS
+        }
+        if any(slot.values()):
+            delta[tier] = slot
+    return _usage_summary_from_tiers(delta)
+
+
+def merge_usage_summaries(
+    accumulated: dict[str, Any], increment: dict[str, Any]
+) -> dict[str, Any]:
+    """把一次运行增量合并进某本书的历史累计用量。"""
+    merged: dict[str, dict[str, int]] = {}
+    for summary in (accumulated, increment):
+        for tier, values in (summary.get("by_tier") or {}).items():
+            slot = merged.setdefault(tier, dict.fromkeys(_USAGE_FIELDS, 0))
+            for field in _USAGE_FIELDS:
+                slot[field] += _usage_int(values, field)
+    return _usage_summary_from_tiers(merged)
+
+
 class UsageTracker:
     """线程安全的 token 用量累加器，按 tier 分档统计（worker 线程并发共享一个 client）。
 
@@ -197,14 +243,7 @@ class UsageTracker:
         """返回 {"totals": {...}, "by_tier": {tier: {...}}}，各档含 cache_hit_rate。"""
         with self._lock:
             by_tier = {t: dict(v) for t, v in self._by_tier.items()}
-        totals = dict.fromkeys(_USAGE_FIELDS, 0)
-        for v in by_tier.values():
-            for f in _USAGE_FIELDS:
-                totals[f] += v[f]
-        for slot in (*by_tier.values(), totals):
-            slot["cache_hit_rate"] = _hit_rate(
-                slot["cache_hit_tokens"], slot["cache_miss_tokens"])
-        return {"totals": totals, "by_tier": by_tier}
+        return _usage_summary_from_tiers(by_tier)
 
 
 # ── 抽象接口 ──────────────────────────────────────────────────────────────
