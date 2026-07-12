@@ -273,6 +273,9 @@ def _rewrite_html_document(
     try:
         text = data.decode("utf-8") if isinstance(data, bytes) else data
         soup = BeautifulSoup(text, "html.parser")
+        for svg in soup.find_all("svg"):
+            if "viewbox" in svg.attrs:
+                svg.attrs["viewBox"] = svg.attrs.pop("viewbox")
         html = soup.find("html")
         if html is None:
             return text.encode("utf-8")

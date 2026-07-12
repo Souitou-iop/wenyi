@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import WenyiMac
@@ -96,5 +97,17 @@ struct SecureSettingsStoreTests {
         RuntimeClock.recoverInterruptedRun(&book)
         #expect(book.accumulatedRunSeconds == 35)
         #expect(book.currentRunStartedAt == nil)
+    }
+
+    @MainActor @Test func sidebarSplitItemReceivesStrictWidthLimits() {
+        let item = NSSplitViewItem(viewController: NSViewController())
+        let splitView = NSSplitView()
+
+        SidebarWidthPolicy.configure(item, in: splitView)
+
+        #expect(item.minimumThickness == 180)
+        #expect(item.maximumThickness == 280)
+        #expect(item.canCollapse)
+        #expect(splitView.autosaveName == "WenyiSidebarSplitView")
     }
 }

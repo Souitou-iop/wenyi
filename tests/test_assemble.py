@@ -11,7 +11,7 @@ import zipfile
 from trans_novel.config import Config
 from trans_novel.llm.base import FakeClient
 from trans_novel.pipeline.orchestrator import Orchestrator
-from trans_novel.assemble.writer import assemble
+from trans_novel.assemble.writer import _rewrite_html_document, assemble
 from trans_novel.assemble.report import build_report
 from trans_novel.glossary.store import GlossaryStore
 from trans_novel.ingest.segmenter import load_document
@@ -106,6 +106,26 @@ class TestAssembleText(unittest.TestCase):
 
 
 class TestAssembleEpub(unittest.TestCase):
+    def test_svg_viewbox_case_is_preserved_when_rewriting_document(self):
+        source = b"""<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>illustration</title></head>
+<body><p>A &copy; B</p><script>const marker = "&lt;svg";</script>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 1453">
+<image width="2048" height="1453" href="image.jpg"/>
+</svg></body></html>"""
+
+        rewritten = _rewrite_html_document(
+            source,
+            lang="zh-Hans",
+            force_horizontal=True,
+        ).decode("utf-8")
+
+        self.assertIn('viewBox="0 0 2048 1453"', rewritten)
+        self.assertNotIn('viewbox="0 0 2048 1453"', rewritten)
+        self.assertIn("A © B", rewritten)
+        self.assertIn('const marker = "&lt;svg";', rewritten)
+
     def test_epub_template_rebuild(self):
         with tempfile.TemporaryDirectory() as d:
             ep = os.path.join(d, "novel.epub")

@@ -16,6 +16,7 @@
 		64A1C31DB4AF1A24AF0F3BA2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A10A0683DC04A4E1DBA0BF /* ContentView.swift */; };
 		6A5BA0785E861C6B1D55F6BC /* SecureSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C51C8A21BCD9AB17C50AF89 /* SecureSettingsStoreTests.swift */; };
 		72AD2DB676DE88B58D3BE106 /* PythonEnvironmentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB117E7087922E16D09297E /* PythonEnvironmentManager.swift */; };
+		9121F840122A3373EA63A250 /* SidebarSplitViewConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E741818061EFE57774CC76 /* SidebarSplitViewConfigurator.swift */; };
 		92B754C11B266C3BD2263FC8 /* AppModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF12471B1E277A393529769B /* AppModels.swift */; };
 		A0C15ECDADAAC84BB4EB5C76 /* RuntimeClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA63B7260A500FE2EFB3340B /* RuntimeClock.swift */; };
 		B7EF60EFD7C10DF487E6B6B6 /* config.yaml in Resources */ = {isa = PBXBuildFile; fileRef = D56C0102BBD09F986990F424 /* config.yaml */; };
@@ -45,6 +46,7 @@
 		1C42ACDE8D9E2B080EE51052 /* JSONLineDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONLineDecoder.swift; sourceTree = "<group>"; };
 		504BD15C317FEABFEA275659 /* WenyiMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WenyiMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		527EB91029A0359DF89F3CE6 /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
+		60E741818061EFE57774CC76 /* SidebarSplitViewConfigurator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSplitViewConfigurator.swift; sourceTree = "<group>"; };
 		6C51C8A21BCD9AB17C50AF89 /* SecureSettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureSettingsStoreTests.swift; sourceTree = "<group>"; };
 		8B9BBE8122F275FD03D3E51C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		8C6037C517A6A8F4FBCCB4B7 /* TranslationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationManager.swift; sourceTree = "<group>"; };
@@ -109,6 +111,7 @@
 			children = (
 				C9A10A0683DC04A4E1DBA0BF /* ContentView.swift */,
 				8B9BBE8122F275FD03D3E51C /* SettingsView.swift */,
+				60E741818061EFE57774CC76 /* SidebarSplitViewConfigurator.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -255,6 +258,7 @@
 				A0C15ECDADAAC84BB4EB5C76 /* RuntimeClock.swift in Sources */,
 				FE3AE20EC6723E2931313057 /* SecureSettingsStore.swift in Sources */,
 				03A35942E5868DA98D96136C /* SettingsView.swift in Sources */,
+				9121F840122A3373EA63A250 /* SidebarSplitViewConfigurator.swift in Sources */,
 				49619AAAA35D9EB5264B4DF8 /* TranslationManager.swift in Sources */,
 				FD0B700ACDB4D5BF50C7BB24 /* WenyiMacApp.swift in Sources */,
 			);

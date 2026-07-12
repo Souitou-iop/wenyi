@@ -1,5 +1,17 @@
 # 文译 macOS 原生 App
 
+## 2026-07-12 - 移除窗口标签栏与运行状态胶囊背景
+
+- [x] 禁用 macOS 自动窗口标签化并隐藏主窗口标签栏。
+- [x] 移除“正在运行”状态文案的灰色胶囊背景。
+- [x] 运行 Swift 测试、Debug 构建并真实启动进行视觉验收。
+
+Review:
+- 根因：红框区域是 `WindowGroup` 允许的 macOS 系统窗口标签栏，不是项目内列表选择器。
+- 改动：主场景改为单例 `Window`，同时禁用自动标签化并将实际窗口设为 `.disallowed`；运行状态仅移除内部 `regularMaterial` 背景，保留系统工具栏外层胶囊。
+- 验证：Python 115 项通过；Swift 10 项通过；`./script/build_and_run.sh --verify` 构建并启动成功；截图确认标签栏消失且运行状态外层胶囊保留。
+- 审查修正：SVG XHTML 保持 HTML 解析，仅恢复 SVG `viewBox` 属性大小写，避免 XML 解析丢失 named entities 或破坏脚本文本。
+
 - [x] 为 Python worker 编写协议测试并实现 JSON Lines 入口
 - [x] 扩展流水线阶段进度与 UUID 状态目录支持
 - [x] 创建 macOS 15 SwiftUI/Xcode 工程与构建脚本
@@ -15,6 +27,13 @@
 - [x] 补充断点进度读取与旧数据兼容测试
 - [x] 增加跨暂停累计的翻译有效运行时间显示
 - [x] 限制书架侧边栏宽度，防止挤占图书详情区域
+- [x] 初始化并验证项目 CodeGraph 索引
+- [x] 对比原版与译后 EPUB，定位固定版式插画裁剪根因
+- [x] 为插画版式保真补充失败回归测试并实施最小修复
+- [x] 使用现有翻译状态重新组装 EPUB，验证插画完整显示
+- [ ] 完成侧边栏 180–280pt 硬限位的真实 UI 验收
+- [x] 运行完整测试、Debug 构建和差异检查
+- [ ] 提交并推送 fork 的 `codex/macos-native-app` 分支
 
 ## Review
 

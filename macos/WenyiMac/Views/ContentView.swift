@@ -12,7 +12,15 @@ struct ContentView: View {
             }
             .listStyle(.sidebar)
             .navigationTitle("书架")
-            .navigationSplitViewColumnWidth(min: 180, ideal: 230, max: 280)
+            .navigationSplitViewColumnWidth(
+                min: SidebarWidthPolicy.minimum,
+                ideal: SidebarWidthPolicy.ideal,
+                max: SidebarWidthPolicy.maximum
+            )
+            .background {
+                SidebarSplitViewConfigurator()
+                    .frame(width: 0, height: 0)
+            }
             .overlay { if library.books.isEmpty { ContentUnavailableView("还没有图书", systemImage: "books.vertical", description: Text("导入 EPUB、FB2 或 TXT 开始翻译")) } }
         } detail: {
             if let book = library.selectedBook { BookDetailView(book: book, manager: manager) }
@@ -38,7 +46,11 @@ struct ContentView: View {
 private struct RunningStatusView: View {
     let count: Int
     var body: some View {
-        Text("正在运行 \(count)").lineLimit(1).fixedSize(horizontal: true, vertical: false).frame(minWidth: 120).padding(.horizontal, 10).padding(.vertical, 6).background(.regularMaterial, in: Capsule()).layoutPriority(2)
+        Text("正在运行 \(count)")
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(minWidth: 120)
+            .layoutPriority(2)
     }
 }
 

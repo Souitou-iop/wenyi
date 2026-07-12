@@ -8,6 +8,7 @@ struct WenyiMacApp: App {
     @State private var manager: TranslationManager
 
     init() {
+        NSWindow.allowsAutomaticWindowTabbing = false
         let store = LibraryStore()
         _library = State(initialValue: store)
         _manager = State(initialValue: TranslationManager(library: store))
@@ -15,13 +16,38 @@ struct WenyiMacApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        Window("文译", id: "main") {
             ContentView(library: library, manager: manager)
                 .frame(minWidth: 880, minHeight: 580)
+                .background {
+                    WindowTabbingConfigurator()
+                        .frame(width: 0, height: 0)
+                }
         }
         .commands { AppCommands(library: library, manager: manager) }
 
         Settings { SettingsView(library: library) }
+    }
+}
+
+private struct WindowTabbingConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WindowProbeView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? WindowProbeView)?.disableTabbing()
+    }
+}
+
+private final class WindowProbeView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        disableTabbing()
+    }
+
+    func disableTabbing() {
+        window?.tabbingMode = .disallowed
     }
 }
 
