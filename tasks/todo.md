@@ -9,7 +9,7 @@
 Review:
 - 根因：红框区域是 `WindowGroup` 允许的 macOS 系统窗口标签栏，不是项目内列表选择器。
 - 改动：主场景改为单例 `Window`，同时禁用自动标签化并将实际窗口设为 `.disallowed`；运行状态仅移除内部 `regularMaterial` 背景，保留系统工具栏外层胶囊。
-- 验证：Python 115 项通过；Swift 10 项通过；`./script/build_and_run.sh --verify` 构建并启动成功；截图确认标签栏消失且运行状态外层胶囊保留。
+- 验证：合并最新 `upstream/dev` 后 Python 128 项通过；Swift 10 项通过；`./script/build_and_run.sh --verify` 构建并启动成功；截图确认标签栏消失且运行状态外层胶囊保留。
 - 审查修正：SVG XHTML 保持 HTML 解析，仅恢复 SVG `viewBox` 属性大小写，避免 XML 解析丢失 named entities 或破坏脚本文本。
 
 - [x] 为 Python worker 编写协议测试并实现 JSON Lines 入口
@@ -33,7 +33,7 @@ Review:
 - [x] 使用现有翻译状态重新组装 EPUB，验证插画完整显示
 - [ ] 完成侧边栏 180–280pt 硬限位的真实 UI 验收
 - [x] 运行完整测试、Debug 构建和差异检查
-- [ ] 提交并推送 fork 的 `codex/macos-native-app` 分支
+- [x] 提交并推送 fork 的 `codex/macos-native-app` 分支
 
 ## Review
 
