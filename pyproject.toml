@@ -13,10 +13,14 @@ dependencies = [
     "ebooklib>=0.18",      # EPUB 读写
     "typer>=0.12",         # CLI
     "rich>=13.7",          # 表格 / 进度条
+    "fastapi>=0.115",      # 本机 Web UI 服务
+    "uvicorn>=0.34",       # ASGI 服务器
+    "python-multipart>=0.0.20", # 图书上传
 ]
 
 [project.scripts]
 trans-novel = "trans_novel.cli:main"
+wenyi-web = "trans_novel.web:main"
 
 [build-system]
 requires = ["hatchling"]
