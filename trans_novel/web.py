@@ -9,17 +9,27 @@ import os
 import signal
 import socket
 import sys
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import urlparse
 
 import uvicorn
 import yaml
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    OpenAI,
+    PermissionDeniedError,
+)
 from pydantic import BaseModel, Field
 
 from .book_inspector import inspect_book
@@ -52,6 +62,7 @@ def _public_book(book: dict[str, Any]) -> dict[str, Any]:
     metadata["coverUrl"] = f"/api/books/{book.get('id')}/cover" if stored.get("coverPath") else None
     result["metadata"] = metadata
     result["title"] = book.get("title") or stored.get("title") or Path(book.get("filename") or "").stem
+    result["group_id"] = book.get("group_id")
     return result
 
 
@@ -95,6 +106,26 @@ class StartTaskRequest(BaseModel):
     output_format: str = "epub"
 
 
+class ConnectionModels(BaseModel):
+    strong: str
+    cheap: str
+    fast: str
+
+
+class TestConnectionRequest(BaseModel):
+    base_url: str
+    api_key: str = ""
+    models: ConnectionModels
+
+
+class GroupRequest(BaseModel):
+    name: str
+
+
+class BookGroupRequest(BaseModel):
+    group_id: str | None = None
+
+
 class WebStore:
     def __init__(self, root: Path):
         self.root = root
@@ -105,6 +136,7 @@ class WebStore:
         self.tasks_dir = root / "tasks"
         self.settings_file = root / "settings.json"
         self.books_file = root / "books.json"
+        self.groups_file = root / "groups.json"
         self.root.mkdir(parents=True, exist_ok=True)
         if os.name != "nt":
             self.root.chmod(0o700)
@@ -124,6 +156,14 @@ class WebStore:
 
     def save_books(self, books: list[dict[str, Any]]) -> None:
         _atomic_json(self.books_file, books)
+
+    def groups(self) -> list[dict[str, Any]]:
+        if not self.groups_file.exists():
+            return []
+        return json.loads(self.groups_file.read_text(encoding="utf-8"))
+
+    def save_groups(self, groups: list[dict[str, Any]]) -> None:
+        _atomic_json(self.groups_file, groups)
 
     def task_file(self, task_id: str) -> Path:
         return self.tasks_dir / f"{task_id}.json"
@@ -341,9 +381,77 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
         store.save_settings(settings)
         return {"saved": True, "has_api_key": bool(settings.api_key)}
 
+    @app.post("/api/settings/test-connection")
+    def test_connection(request: TestConnectionRequest):
+        api_key = request.api_key or store.settings().api_key
+        if not api_key:
+            raise HTTPException(400, "缺少 API Key")
+        endpoint = urlparse(request.base_url)
+        if endpoint.scheme not in {"http", "https"} or not endpoint.netloc:
+            raise HTTPException(400, "模型服务地址无效")
+
+        started = time.perf_counter()
+        requested_models = list(dict.fromkeys(model.strip() for model in [
+            request.models.strong, request.models.cheap, request.models.fast,
+        ]))
+        if any(not model for model in requested_models):
+            raise HTTPException(400, "模型名称不能为空")
+        mode = "models"
+        try:
+            client = OpenAI(
+                api_key=api_key,
+                base_url=request.base_url,
+                timeout=15,
+                max_retries=0,
+            )
+            try:
+                available = {model.id for model in client.models.list().data}
+            except APIStatusError as exc:
+                if exc.status_code not in {404, 405, 501}:
+                    raise
+                mode = "completion"
+                client.chat.completions.create(
+                    model=request.models.fast,
+                    messages=[{"role": "user", "content": "ping"}],
+                    max_tokens=1,
+                )
+                requested_models = [request.models.fast]
+            else:
+                missing = [model for model in requested_models if model not in available]
+                if missing:
+                    raise HTTPException(400, f"模型不存在: {', '.join(missing)}")
+        except AuthenticationError as exc:
+            raise HTTPException(401, "API Key 认证失败") from exc
+        except PermissionDeniedError as exc:
+            raise HTTPException(403, "API Key 无权访问该服务") from exc
+        except APITimeoutError as exc:
+            raise HTTPException(504, "连接检测超时") from exc
+        except APIConnectionError as exc:
+            raise HTTPException(502, "无法连接模型服务") from exc
+        except APIStatusError as exc:
+            if mode == "completion" and exc.status_code == 404:
+                raise HTTPException(400, f"模型不存在: {request.models.fast.strip()}") from exc
+            raise HTTPException(502, f"模型服务返回错误 ({exc.status_code})") from exc
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, "模型服务地址无效") from exc
+
+        return {
+            "ok": True,
+            "mode": mode,
+            "latency_ms": round((time.perf_counter() - started) * 1000),
+            "checked_models": requested_models,
+        }
+
     @app.get("/api/books")
     def get_books():
-        return [_public_book(book) for book in store.books()]
+        group_ids = {group["id"] for group in store.groups()}
+        return [
+            _public_book({
+                **book,
+                "group_id": book.get("group_id") if book.get("group_id") in group_ids else None,
+            })
+            for book in store.books()
+        ]
 
     @app.post("/api/books")
     async def upload_book(file: UploadFile = File(...)):
@@ -394,6 +502,86 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
         if cover:
             Path(cover).unlink(missing_ok=True)
         store.save_books([item for item in books if item["id"] != book_id])
+        return {"deleted": True}
+
+    @app.patch("/api/books/{book_id}/group")
+    def move_book_to_group(book_id: str, request: BookGroupRequest):
+        books = store.books()
+        book = next((item for item in books if item["id"] == book_id), None)
+        if not book:
+            raise HTTPException(404, "图书不存在")
+        if request.group_id is not None and not any(
+            group["id"] == request.group_id for group in store.groups()
+        ):
+            raise HTTPException(404, "分组不存在")
+        if request.group_id is None:
+            book.pop("group_id", None)
+        else:
+            book["group_id"] = request.group_id
+        store.save_books(books)
+        return _public_book(book)
+
+    @app.get("/api/groups")
+    def get_groups():
+        counts: dict[str, int] = {}
+        for book in store.books():
+            if group_id := book.get("group_id"):
+                counts[group_id] = counts.get(group_id, 0) + 1
+        return [
+            {**group, "book_count": counts.get(group["id"], 0)}
+            for group in store.groups()
+        ]
+
+    @app.post("/api/groups")
+    def create_group(request: GroupRequest):
+        name = request.name.strip()
+        if not name:
+            raise HTTPException(400, "分组名称不能为空")
+        groups = store.groups()
+        if any(group["name"].casefold() == name.casefold() for group in groups):
+            raise HTTPException(409, "分组名称已存在")
+        group = {"id": str(uuid.uuid4()), "name": name}
+        groups.append(group)
+        store.save_groups(groups)
+        return {**group, "book_count": 0}
+
+    @app.patch("/api/groups/{group_id}")
+    def rename_group(group_id: str, request: GroupRequest):
+        name = request.name.strip()
+        if not name:
+            raise HTTPException(400, "分组名称不能为空")
+        groups = store.groups()
+        group = next((item for item in groups if item["id"] == group_id), None)
+        if not group:
+            raise HTTPException(404, "分组不存在")
+        if any(
+            item["id"] != group_id and item["name"].casefold() == name.casefold()
+            for item in groups
+        ):
+            raise HTTPException(409, "分组名称已存在")
+        group["name"] = name
+        store.save_groups(groups)
+        return {
+            **group,
+            "book_count": sum(
+                book.get("group_id") == group_id for book in store.books()
+            ),
+        }
+
+    @app.delete("/api/groups/{group_id}")
+    def delete_group(group_id: str):
+        groups = store.groups()
+        if not any(group["id"] == group_id for group in groups):
+            raise HTTPException(404, "分组不存在")
+        books = store.books()
+        changed = False
+        for book in books:
+            if book.get("group_id") == group_id:
+                book.pop("group_id")
+                changed = True
+        if changed:
+            store.save_books(books)
+        store.save_groups([group for group in groups if group["id"] != group_id])
         return {"deleted": True}
 
     @app.get("/api/tasks")
