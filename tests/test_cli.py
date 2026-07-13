@@ -19,6 +19,25 @@ class FakeStore:
 
 
 class TestCliConfig(unittest.TestCase):
+    def test_every_cli_start_checks_default_config(self):
+        runner = CliRunner()
+        with patch.object(Config, "create_default_file", return_value=True) as create:
+            result = runner.invoke(app, ["--help"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        create.assert_called_once_with("config.yaml")
+
+    def test_cli_start_respects_custom_config_path(self):
+        runner = CliRunner()
+        with patch.object(Config, "create_default_file", return_value=True) as create:
+            result = runner.invoke(
+                app,
+                ["--config", "settings/config.yaml", "--help"],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        create.assert_called_once_with("settings/config.yaml")
+
     def test_translate_defaults_keep_config_switches(self):
         cfg = Config.from_dict(
             {

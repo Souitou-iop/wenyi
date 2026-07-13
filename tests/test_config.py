@@ -10,11 +10,13 @@ from trans_novel.config import Config
 
 
 class TestConfigFileCreation(unittest.TestCase):
-    def test_load_creates_missing_default_config(self):
+    def test_create_default_file_can_be_loaded(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "nested" / "config.yaml"
+            created = Config.create_default_file(str(path))
             cfg = Config.load(str(path))
 
+            self.assertTrue(created)
             self.assertTrue(path.is_file())
             self.assertEqual(cfg.llm.provider, "deepseek")
             self.assertEqual(cfg.llm.base_url, "https://api.deepseek.com")

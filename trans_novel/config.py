@@ -161,7 +161,6 @@ class Config(BaseModel):
 
     @classmethod
     def load(cls, path: str = "config.yaml") -> "Config":
-        cls.create_default_file(path)
         with open(path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         return cls.from_dict(raw)

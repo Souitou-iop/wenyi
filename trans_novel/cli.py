@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Optional
+from collections.abc import Sequence
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
@@ -22,6 +23,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
+from typer.core import TyperGroup
 
 from .config import Config
 from .ingest.segmenter import load_document
@@ -49,14 +51,49 @@ def _configure_windows_console(
 
 _configure_windows_console()
 
-app = typer.Typer(add_completion=False, help="多 Agent 小说翻译系统（多语言 → 中文）")
+_CONFIG = {"path": "config.yaml"}
+
+
+def _config_path_from_args(args: Sequence[str]) -> str:
+    """在 Click 解析参数前取得全局配置路径，确保帮助等早退命令也会初始化。"""
+    for index, arg in enumerate(args):
+        if arg in {"--config", "-c"}:
+            if index + 1 < len(args):
+                return args[index + 1]
+            break
+        if arg.startswith("--config="):
+            return arg.partition("=")[2]
+        if arg.startswith("-c") and len(arg) > 2:
+            return arg[2:]
+    return "config.yaml"
+
+
+class _ConfigInitializingGroup(TyperGroup):
+    """所有 CLI 调用在 Click 分派或早退前都检查默认配置。"""
+
+    def main(
+        self,
+        args: Sequence[str] | None = None,
+        *main_args: Any,
+        **main_kwargs: Any,
+    ) -> Any:
+        cli_args = list(args) if args is not None else sys.argv[1:]
+        config_path = _config_path_from_args(cli_args)
+        _CONFIG["path"] = config_path
+        Config.create_default_file(config_path)
+        return super().main(args=args, *main_args, **main_kwargs)
+
+
+app = typer.Typer(
+    cls=_ConfigInitializingGroup,
+    add_completion=False,
+    help="多 Agent 小说翻译系统（多语言 → 中文）",
+)
 tools_app = typer.Typer(
     add_completion=False,
     help="高级/调试工具：glossary（术语表）/ assemble（回填）/ qa / report",
 )
 console = Console()
-
-_CONFIG = {"path": "config.yaml"}
 
 
 @app.callback()
