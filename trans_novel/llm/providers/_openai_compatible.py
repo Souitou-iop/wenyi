@@ -19,6 +19,12 @@ from tenacity import (
 from ...config import LLMConfig, TierConfig
 from ..base import LLMClient, Messages
 from ..tiers import resolve_tier
+from ..usage import (
+    UsageSample,
+    make_usage_sample,
+    read_usage_int,
+    read_usage_value,
+)
 
 OptionsT = TypeVar("OptionsT", bound=BaseModel)
 
@@ -83,6 +89,28 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+def normalize_openai_usage(usage: Any) -> UsageSample | None:
+    """把 OpenAI 风格的嵌套缓存明细转换成统一用量。"""
+    if usage is None:
+        return None
+    details = read_usage_value(usage, "prompt_tokens_details")
+    cached_value = read_usage_value(details, "cached_tokens")
+    if cached_value is None:
+        cache_hit_tokens = 0
+        cache_miss_tokens = 0
+    else:
+        cache_hit_tokens = read_usage_int(details, "cached_tokens")
+        cache_miss_tokens = max(
+            0,
+            read_usage_int(usage, "prompt_tokens") - cache_hit_tokens,
+        )
+    return make_usage_sample(
+        usage,
+        cache_hit_tokens=cache_hit_tokens,
+        cache_miss_tokens=cache_miss_tokens,
+    )
+
+
 class OpenAICompatibleBaseClient(LLMClient, Generic[OptionsT]):
     """所有 OpenAI Chat Completions 兼容 provider 的共用客户端。"""
 
@@ -130,6 +158,10 @@ class OpenAICompatibleBaseClient(LLMClient, Generic[OptionsT]):
                 )
         return self._client
 
+    def _normalize_usage(self, usage: Any) -> UsageSample | None:
+        """标准 OpenAI 兼容响应默认使用嵌套缓存明细。"""
+        return normalize_openai_usage(usage)
+
     @abstractmethod
     def _build_request_kwargs(
         self,
@@ -168,7 +200,8 @@ class OpenAICompatibleBaseClient(LLMClient, Generic[OptionsT]):
         )
         def _call() -> str:
             response = client.chat.completions.create(**kwargs)
-            self.usage.record(tier, getattr(response, "usage", None), stage)
+            sample = self._normalize_usage(getattr(response, "usage", None))
+            self.usage.record(tier, sample, stage)
             return response.choices[0].message.content or ""
 
         return _call()

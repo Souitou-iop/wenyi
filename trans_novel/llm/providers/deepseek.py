@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ...config import LLMConfig
 from ..base import Messages
+from ..usage import UsageSample, make_usage_sample, read_usage_int
 from ._openai_compatible import (
     OpenAICompatibleBaseClient,
     ResolvedTier,
@@ -18,6 +19,17 @@ from ._openai_compatible import (
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
+
+
+def normalize_deepseek_usage(usage: Any) -> UsageSample | None:
+    """把 DeepSeek 顶层缓存字段转换成统一用量。"""
+    if usage is None:
+        return None
+    return make_usage_sample(
+        usage,
+        cache_hit_tokens=read_usage_int(usage, "prompt_cache_hit_tokens"),
+        cache_miss_tokens=read_usage_int(usage, "prompt_cache_miss_tokens"),
+    )
 
 
 class DeepSeekTierOptions(BaseModel):
@@ -85,6 +97,9 @@ class DeepSeekClient(OpenAICompatibleBaseClient[DeepSeekTierOptions]):
             tiers=tiers,
             requires_api_key=True,
         )
+
+    def _normalize_usage(self, usage: Any) -> UsageSample | None:
+        return normalize_deepseek_usage(usage)
 
     def _build_request_kwargs(
         self,
