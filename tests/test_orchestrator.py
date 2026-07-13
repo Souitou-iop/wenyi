@@ -92,9 +92,29 @@ class TestOrchestrator(unittest.TestCase):
             # 续跑应只补翻第 1 章
             client2 = FakeClient(handler=routing_handler)
             orch2 = Orchestrator(cfg, client=client2)
-            store2 = orch2.run(txt)
+            chapter_indices = [chapter["index"] for chapter in m["chapters"]]
+            expected_total, expected_done = orch2._progress_counts(
+                store, chapter_indices
+            )
+            progress_events: list[tuple[int, int, str]] = []
+            store2 = orch2.run(
+                txt,
+                progress=lambda done, total, label: progress_events.append(
+                    (done, total, label)
+                ),
+            )
             m2 = store2.load_manifest()
             self.assertTrue(all(c["status"] == STATUS_DONE for c in m2["chapters"]))
+            chapter_label = Orchestrator._chapter_progress_label(
+                store.load_chapter(1).title, 1
+            )
+            first_chapter_progress = next(
+                event for event in progress_events if event[2] == chapter_label
+            )
+            self.assertEqual(
+                first_chapter_progress,
+                (expected_done, expected_total, chapter_label),
+            )
 
 
 class TestSegmentLevelResume(unittest.TestCase):
@@ -473,6 +493,53 @@ class TestGlossaryScope(unittest.TestCase):
             ]
             self.assertGreaterEqual(len(translate_prompts), 3)
             self.assertIn("夏帆ちゃん → 小夏帆", translate_prompts[-1])
+
+    def test_resume_recovers_batch_glossary_checkpoints_from_events(self):
+        """旧状态续跑时复用抽取事件，不为已完成批次重复调用模型。"""
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.pipeline.polish = False
+            cfg.pipeline.review = False
+            cfg.pipeline.consistency_qa = False
+            cfg.pipeline.book_understanding = False
+            cfg.segment.max_chars_per_batch = 8
+
+            store = Orchestrator(
+                cfg, client=FakeClient(handler=routing_handler)
+            ).run(txt, only_chapter=0)
+            checkpoints = store.completed_batch_glossary_keys(0)
+            self.assertGreater(len(checkpoints), 1)
+
+            # 章已完成但状态被恢复为 pending：续跑应从事件日志识别已抽取批次。
+            store.set_chapter_status(0, STATUS_PENDING)
+
+            labels: list[str] = []
+            glossary_labels: list[str] = []
+
+            def handler(messages, tier, json_mode):
+                system = messages[0]["content"]
+                if "术语" in system and "抽取器" in system:
+                    glossary_labels.append(labels[-1])
+                return routing_handler(messages, tier, json_mode)
+
+            client = FakeClient(handler=handler)
+            Orchestrator(cfg, client=client).run(
+                txt,
+                only_chapter=0,
+                progress=lambda _done, _total, label: labels.append(label),
+            )
+
+            glossary_calls = [
+                call for call in client.calls
+                if "术语" in call["messages"][0]["content"]
+                and "抽取器" in call["messages"][0]["content"]
+            ]
+            # 已译批次全部跳过，只保留章末一次兜底抽取。
+            self.assertEqual(len(glossary_calls), 1)
+            self.assertTrue(glossary_labels)
+            self.assertTrue(all(label != "解析文档…" for label in glossary_labels))
 
     def test_chapter_glossary_refreshes_review_prompt(self):
         """全章兜底术语抽取在 review 前执行，章末审校能看到新称谓。"""
