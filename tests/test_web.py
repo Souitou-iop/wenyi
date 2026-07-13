@@ -94,6 +94,35 @@ class TestWebAPI(unittest.TestCase):
         self.assertEqual(self.client.post("/api/tasks/task-id/stop").status_code, 409)
         self.assertEqual(self.client.post("/api/tasks/task-id/resume").status_code, 409)
 
+    def test_resume_keeps_original_output_format(self):
+        book = {
+            "id": "book-id",
+            "filename": "book.txt",
+            "title": "Book",
+            "path": str(self.root / "books" / "book.txt"),
+            "metadata": {},
+        }
+        (self.root / "books.json").write_text(json.dumps([book]), encoding="utf-8")
+        task_file = self.root / "tasks" / "task-id.json"
+        task_file.parent.mkdir(parents=True)
+        task = {
+            "id": "task-id",
+            "book_id": "book-id",
+            "status": "paused",
+            "output_format": "txt",
+        }
+        task_file.write_text(json.dumps(task), encoding="utf-8")
+
+        with patch.object(
+            self.client.app.state.manager,
+            "start",
+            AsyncMock(return_value=task),
+        ) as start:
+            response = self.client.post("/api/tasks/task-id/resume")
+
+        self.assertEqual(response.status_code, 200)
+        start.assert_awaited_once_with(book, "txt", task_id="task-id")
+
     @patch("trans_novel.web.OpenAI")
     def test_connection_lists_and_validates_unique_models_without_saving_draft(self, openai):
         openai.return_value.models.list.return_value = SimpleNamespace(data=[
@@ -479,6 +508,64 @@ class TestTaskManager(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(config.llm.provider, "openai-compatible")
         self.assertEqual(config.llm.tiers["strong"].options, {"thinking": True})
+
+    async def test_unexpected_worker_error_marks_task_failed(self):
+        async def broken_run(*_args):
+            raise RuntimeError("spawn failed")
+
+        self.manager._run = broken_run  # type: ignore[method-assign]
+        book = {
+            "id": "book-id",
+            "filename": "book.epub",
+            "title": "Book",
+            "path": str(Path(self.temp.name) / "book.epub"),
+        }
+
+        task = await self.manager.start(book)
+        job = self.manager.jobs[task["id"]]
+        await job
+        saved = self.manager.get(task["id"])
+
+        self.assertEqual(saved["status"], "failed")
+        self.assertEqual(saved["error"], "spawn failed")
+
+    async def test_stop_does_not_overwrite_completed_task(self):
+        completed = asyncio.Event()
+        task = {
+            "id": "task-id",
+            "book_id": "book-id",
+            "status": "running",
+            "outputs": [],
+        }
+        self.manager.save(task)
+
+        async def complete_task():
+            await completed.wait()
+            finished = self.manager.get(task["id"])
+            finished.update(status="completed", outputs=["book.zh.epub"])
+            self.manager.save(finished)
+
+        async def wait_for_process():
+            completed.set()
+            return 0
+
+        job = asyncio.create_task(complete_task())
+        process = SimpleNamespace(
+            returncode=None,
+            send_signal=lambda _signal: None,
+            wait=wait_for_process,
+        )
+        self.manager.jobs[task["id"]] = job
+        self.manager.processes[task["id"]] = process
+        self.manager.book_tasks[task["book_id"]] = task["id"]
+
+        result = await self.manager.stop(task["id"])
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["outputs"], ["book.zh.epub"])
+        self.manager.jobs.pop(task["id"], None)
+        self.manager.processes.pop(task["id"], None)
+        self.manager.book_tasks.pop(task["book_id"], None)
 
 
 if __name__ == "__main__":

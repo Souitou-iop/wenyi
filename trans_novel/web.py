@@ -228,6 +228,7 @@ class TaskManager:
             "completed": 0,
             "total": 0,
             "outputs": [],
+            "output_format": output_format,
             "error": None,
             "created_at": self.get(task_id).get("created_at", _now()) if self.store.task_file(task_id).exists() else _now(),
             "updated_at": _now(),
@@ -247,6 +248,15 @@ class TaskManager:
     ) -> None:
         try:
             await self._run(task, book, output, output_format)
+        except Exception as exc:
+            latest = self.get(task["id"])
+            if latest.get("status") == "running":
+                latest.update(status="failed", error=str(exc)[-2000:])
+                self.save(latest)
+                await self.publish(
+                    task["id"],
+                    {"type": "failed", "message": latest["error"]},
+                )
         finally:
             self.processes.pop(task["id"], None)
             self.jobs.pop(task["id"], None)
@@ -346,6 +356,8 @@ class TaskManager:
                 await asyncio.wait_for(process.wait(), timeout=8)
             except asyncio.TimeoutError:
                 process.kill()
+            if job and not job.done():
+                await job
         elif job and not job.done():
             job.cancel()
             try:
@@ -356,10 +368,15 @@ class TaskManager:
                 self.jobs.pop(task_id, None)
                 if self.book_tasks.get(task["book_id"]) == task_id:
                     self.book_tasks.pop(task["book_id"], None)
-        task.update(status="paused", phase="已暂停")
-        self.save(task)
-        await self.publish(task_id, {"type": "failed", "code": "cancelled", "message": "任务已停止"})
-        return task
+        latest = self.get(task_id)
+        if latest.get("status") == "running":
+            latest.update(status="paused", phase="已暂停")
+            self.save(latest)
+            await self.publish(
+                task_id,
+                {"type": "failed", "code": "cancelled", "message": "任务已停止"},
+            )
+        return latest
 
     async def shutdown(self) -> None:
         await asyncio.gather(*(self.stop(task_id) for task_id in tuple(self.jobs)), return_exceptions=True)
@@ -645,7 +662,11 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
         book = next((item for item in store.books() if item["id"] == task["book_id"]), None)
         if not book:
             raise HTTPException(404, "原始图书不存在")
-        return await manager.start(book, task_id=task_id)
+        return await manager.start(
+            book,
+            task.get("output_format", "epub"),
+            task_id=task_id,
+        )
 
     @app.get("/api/tasks/{task_id}/events")
     async def task_events(task_id: str):
