@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import argparse
 import base64
-import json
 import os
 import posixpath
 import shutil
@@ -158,17 +156,3 @@ def inspect_book(path: str, cover_directory: str, book_id: str) -> dict:
             "fileSize": stat.st_size,
             "coverPath": cover_path,
         }
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--cover-directory", required=True)
-    parser.add_argument("--book-id", required=True)
-    args = parser.parse_args(argv)
-    print(json.dumps(inspect_book(args.input, args.cover_directory, args.book_id), ensure_ascii=False))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

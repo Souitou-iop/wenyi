@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import webbrowser
 from pathlib import Path
 
 
@@ -38,10 +39,7 @@ def main() -> int:
             try:
                 with urllib.request.urlopen(f"{url}/api/health", timeout=0.4) as response:
                     if response.status == 200:
-                        subprocess.run(
-                            [sys.executable, str(ROOT / "script" / "open-webui.py"), url],
-                            check=False,
-                        )
+                        webbrowser.open(url)
                         print(f"文译 Web UI: {url}", flush=True)
                         return process.wait()
             except OSError:
