@@ -20,7 +20,6 @@ dependencies = [
 
 [project.scripts]
 trans-novel = "trans_novel.cli:main"
-wenyi-web = "trans_novel.web:main"
 
 [build-system]
 requires = ["hatchling"]

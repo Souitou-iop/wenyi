@@ -48,7 +48,6 @@ export type Task = {
 export type Tier = {
   model: string;
   thinking: boolean;
-  reasoning_effort: string;
 };
 
 export type Settings = {

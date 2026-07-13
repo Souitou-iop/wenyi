@@ -1,11 +1,13 @@
+import asyncio
 import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from openai import (
     APIConnectionError,
@@ -15,8 +17,15 @@ from openai import (
     PermissionDeniedError,
 )
 
-from trans_novel.config import TierConfig
-from trans_novel.web import TierSettings, WebSettings, _tier_config, create_app
+from trans_novel.config import Config, TierConfig
+from trans_novel.web import (
+    TaskManager,
+    TierSettings,
+    WebSettings,
+    WebStore,
+    _tier_config,
+    create_app,
+)
 
 
 class TestWebAPI(unittest.TestCase):
@@ -42,7 +51,6 @@ class TestWebAPI(unittest.TestCase):
         payload = _tier_config(TierSettings(
             model="model-id",
             thinking=True,
-            reasoning_effort="medium",
         ))
 
         tier = TierConfig.model_validate(payload)
@@ -50,8 +58,41 @@ class TestWebAPI(unittest.TestCase):
         self.assertEqual(tier.model, "model-id")
         self.assertEqual(tier.options, {
             "thinking": True,
-            "reasoning_effort": "medium",
         })
+
+    def test_running_tasks_are_only_paused_when_service_starts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            task_file = root / "tasks" / "task-id.json"
+            task_file.parent.mkdir(parents=True)
+            task = {
+                "id": "task-id",
+                "book_id": "book-id",
+                "status": "running",
+                "created_at": "2026-01-01T00:00:00+00:00",
+            }
+            task_file.write_text(json.dumps(task), encoding="utf-8")
+
+            with TestClient(create_app(root)) as client:
+                paused = client.get("/api/tasks").json()[0]
+                self.assertEqual(paused["status"], "paused")
+                self.assertEqual(paused["phase"], "服务已重新启动")
+
+                task_file.write_text(json.dumps(task), encoding="utf-8")
+                self.assertEqual(client.get("/api/tasks").json()[0]["status"], "running")
+
+    def test_completed_task_cannot_be_stopped_or_resumed(self):
+        task_file = self.root / "tasks" / "task-id.json"
+        task_file.parent.mkdir(parents=True)
+        task_file.write_text(json.dumps({
+            "id": "task-id",
+            "book_id": "book-id",
+            "status": "completed",
+            "outputs": [],
+        }), encoding="utf-8")
+
+        self.assertEqual(self.client.post("/api/tasks/task-id/stop").status_code, 409)
+        self.assertEqual(self.client.post("/api/tasks/task-id/resume").status_code, 409)
 
     @patch("trans_novel.web.OpenAI")
     def test_connection_lists_and_validates_unique_models_without_saving_draft(self, openai):
@@ -369,6 +410,75 @@ class TestWebAPI(unittest.TestCase):
         self.assertEqual(len(books), 1)
         self.assertIsNone(books[0]["group_id"])
         self.assertEqual(self.client.delete("/api/groups/missing").status_code, 404)
+
+
+class TestTaskManager(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = WebStore(Path(self.temp.name))
+        self.manager = TaskManager(self.store)
+
+    async def asyncTearDown(self):
+        await self.manager.shutdown()
+        self.temp.cleanup()
+
+    async def test_rejects_duplicate_book_and_cancels_starting_job(self):
+        blocker = asyncio.Event()
+
+        async def blocked_run(*_args):
+            await blocker.wait()
+
+        self.manager._run = blocked_run  # type: ignore[method-assign]
+        book = {
+            "id": "book-id",
+            "filename": "book.epub",
+            "title": "Book",
+            "path": str(Path(self.temp.name) / "book.epub"),
+        }
+
+        task = await self.manager.start(book)
+        with self.assertRaises(HTTPException) as duplicate:
+            await self.manager.start(book)
+        self.assertEqual(duplicate.exception.status_code, 409)
+
+        stopped = await self.manager.stop(task["id"])
+
+        self.assertEqual(stopped["status"], "paused")
+        self.assertNotIn(task["id"], self.manager.jobs)
+        self.assertNotIn(book["id"], self.manager.book_tasks)
+
+    async def test_worker_config_uses_openai_compatible_provider(self):
+        stream = SimpleNamespace(
+            readline=AsyncMock(return_value=b""),
+            read=AsyncMock(return_value=b""),
+        )
+        process = SimpleNamespace(
+            stdout=stream,
+            stderr=stream,
+            returncode=0,
+            wait=AsyncMock(return_value=0),
+        )
+        task = {"id": "task-id", "status": "running"}
+        book = {
+            "id": "book-id",
+            "path": str(Path(self.temp.name) / "book.epub"),
+        }
+
+        with patch(
+            "trans_novel.web.asyncio.create_subprocess_exec",
+            AsyncMock(return_value=process),
+        ):
+            await self.manager._run(
+                task,
+                book,
+                Path(self.temp.name) / "book.zh.epub",
+                "epub",
+            )
+
+        config = Config.load(str(self.store.tasks_dir / "task-id.yaml"))
+
+        self.assertEqual(config.llm.provider, "openai-compatible")
+        self.assertEqual(config.llm.tiers["strong"].options, {"thinking": True})
 
 
 if __name__ == "__main__":

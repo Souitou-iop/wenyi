@@ -69,7 +69,6 @@ def _public_book(book: dict[str, Any]) -> dict[str, Any]:
 class TierSettings(BaseModel):
     model: str
     thinking: bool = False
-    reasoning_effort: str = "high"
 
 
 def _tier_config(tier: TierSettings) -> dict[str, Any]:
@@ -77,7 +76,6 @@ def _tier_config(tier: TierSettings) -> dict[str, Any]:
         "model": tier.model,
         "options": {
             "thinking": tier.thinking,
-            "reasoning_effort": tier.reasoning_effort,
         },
     }
 
@@ -172,15 +170,17 @@ class WebStore:
         tasks = []
         for path in self.tasks_dir.glob("*.json"):
             try:
-                task = json.loads(path.read_text(encoding="utf-8"))
-                if task.get("status") == "running":
-                    task["status"] = "paused"
-                    task["phase"] = "服务已重新启动"
-                    _atomic_json(path, task)
-                tasks.append(task)
+                tasks.append(json.loads(path.read_text(encoding="utf-8")))
             except (OSError, json.JSONDecodeError):
                 continue
         return sorted(tasks, key=lambda item: item.get("created_at", ""), reverse=True)
+
+    def pause_running_tasks(self) -> None:
+        for task in self.tasks():
+            if task.get("status") == "running":
+                task["status"] = "paused"
+                task["phase"] = "服务已重新启动"
+                _atomic_json(self.task_file(task["id"]), task)
 
 
 class TaskManager:
@@ -189,6 +189,7 @@ class TaskManager:
         self.processes: dict[str, asyncio.subprocess.Process] = {}
         self.listeners: dict[str, set[asyncio.Queue[dict[str, Any]]]] = {}
         self.jobs: dict[str, asyncio.Task[None]] = {}
+        self.book_tasks: dict[str, str] = {}
 
     def get(self, task_id: str) -> dict[str, Any]:
         path = self.store.task_file(task_id)
@@ -207,8 +208,10 @@ class TaskManager:
     async def start(self, book: dict[str, Any], output_format: str = "epub", task_id: str | None = None) -> dict[str, Any]:
         if output_format not in {"epub", "txt"}:
             raise HTTPException(400, "输出格式仅支持 epub 或 txt")
-        if task_id and task_id in self.processes:
+        if task_id and task_id in self.jobs:
             raise HTTPException(409, "任务已在运行")
+        if book["id"] in self.book_tasks:
+            raise HTTPException(409, "该图书已有运行中的任务")
 
         task_id = task_id or str(uuid.uuid4())
         output_dir = self.store.outputs_dir / task_id
@@ -230,9 +233,25 @@ class TaskManager:
             "updated_at": _now(),
         }
         self.save(task)
-        job = asyncio.create_task(self._run(task, book, output, output_format))
+        self.book_tasks[book["id"]] = task_id
+        job = asyncio.create_task(self._run_job(task, book, output, output_format))
         self.jobs[task_id] = job
         return task
+
+    async def _run_job(
+        self,
+        task: dict[str, Any],
+        book: dict[str, Any],
+        output: Path,
+        output_format: str,
+    ) -> None:
+        try:
+            await self._run(task, book, output, output_format)
+        finally:
+            self.processes.pop(task["id"], None)
+            self.jobs.pop(task["id"], None)
+            if self.book_tasks.get(book["id"]) == task["id"]:
+                self.book_tasks.pop(book["id"], None)
 
     async def _run(self, task: dict[str, Any], book: dict[str, Any], output: Path, output_format: str) -> None:
         settings = self.store.settings()
@@ -241,7 +260,7 @@ class TaskManager:
         config_path.write_text(yaml.safe_dump({
             "language": {"source": "auto", "target": "zh"},
             "llm": {
-                "provider": "deepseek",
+                "provider": "openai-compatible",
                 "base_url": settings.base_url,
                 "api_key_env": "WENYI_WEB_API_KEY",
                 "timeout": settings.timeout,
@@ -314,10 +333,12 @@ class TaskManager:
                 await self.publish(task["id"], {"type": "failed", "message": task["error"]})
         finally:
             self.processes.pop(task["id"], None)
-            self.jobs.pop(task["id"], None)
 
     async def stop(self, task_id: str) -> dict[str, Any]:
         task = self.get(task_id)
+        if task.get("status") != "running":
+            raise HTTPException(409, "任务当前不可暂停")
+        job = self.jobs.get(task_id)
         process = self.processes.get(task_id)
         if process and process.returncode is None:
             process.send_signal(signal.SIGTERM)
@@ -325,13 +346,23 @@ class TaskManager:
                 await asyncio.wait_for(process.wait(), timeout=8)
             except asyncio.TimeoutError:
                 process.kill()
+        elif job and not job.done():
+            job.cancel()
+            try:
+                await job
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self.jobs.pop(task_id, None)
+                if self.book_tasks.get(task["book_id"]) == task_id:
+                    self.book_tasks.pop(task["book_id"], None)
         task.update(status="paused", phase="已暂停")
         self.save(task)
         await self.publish(task_id, {"type": "failed", "code": "cancelled", "message": "任务已停止"})
         return task
 
     async def shutdown(self) -> None:
-        await asyncio.gather(*(self.stop(task_id) for task_id in tuple(self.processes)), return_exceptions=True)
+        await asyncio.gather(*(self.stop(task_id) for task_id in tuple(self.jobs)), return_exceptions=True)
 
     async def events(self, task_id: str) -> AsyncIterator[str]:
         self.get(task_id)
@@ -348,10 +379,13 @@ class TaskManager:
                     yield ": keepalive\n\n"
         finally:
             listeners.discard(queue)
+            if not listeners:
+                self.listeners.pop(task_id, None)
 
 
 def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> FastAPI:
     store = WebStore(data_dir or Path(os.environ.get("WENYI_WEB_DATA", Path.home() / ".wenyi-webui")))
+    store.pause_running_tasks()
     manager = TaskManager(store)
 
     @asynccontextmanager
@@ -606,6 +640,8 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
     @app.post("/api/tasks/{task_id}/resume")
     async def resume_task(task_id: str):
         task = manager.get(task_id)
+        if task.get("status") not in {"paused", "failed"}:
+            raise HTTPException(409, "任务当前不可继续")
         book = next((item for item in store.books() if item["id"] == task["book_id"]), None)
         if not book:
             raise HTTPException(404, "原始图书不存在")
@@ -614,10 +650,6 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
     @app.get("/api/tasks/{task_id}/events")
     async def task_events(task_id: str):
         return StreamingResponse(manager.events(task_id), media_type="text/event-stream")
-
-    @app.get("/api/tasks/{task_id}/outputs")
-    def task_outputs(task_id: str):
-        return manager.get(task_id).get("outputs", [])
 
     @app.get("/api/tasks/{task_id}/outputs/{name}")
     def download_output(task_id: str, name: str):

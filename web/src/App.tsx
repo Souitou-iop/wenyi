@@ -265,12 +265,14 @@ function App() {
                     ) : null}
                     <h1>{currentBook.title}</h1>
                   </div>
-                  <div className="primary-actions">
-                    <button className="button primary" disabled={busy} onClick={run}>
-                      <Play weight="fill" />
-                      {busy ? "准备中" : "开始翻译"}
-                    </button>
-                  </div>
+                  {!currentTask ? (
+                    <div className="primary-actions">
+                      <button className="button primary" disabled={busy} onClick={run}>
+                        <Play weight="fill" />
+                        {busy ? "准备中" : "开始翻译"}
+                      </button>
+                    </div>
+                  ) : null}
                   <dl className="metadata-grid">
                     {currentBook.metadata.publisher ? (
                       <div><dt>出版社</dt><dd>{currentBook.metadata.publisher}</dd></div>
