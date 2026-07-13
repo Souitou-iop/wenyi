@@ -37,6 +37,7 @@ from .context import RollingContext
 from .runstore import RunStore, slugify, STATUS_DONE
 
 ProgressFn = Callable[[int, int, str], None]
+PhaseFn = Callable[[str, str], None]
 
 
 # 语言名/代码 → ISO 639-1 两字母代码（模型检测结果归一化）
@@ -223,7 +224,8 @@ class Orchestrator:
         return "\n\n".join(parts)
 
     def run(self, input_path: str, *, only_chapter: int | None = None,
-            progress: Optional[ProgressFn] = None) -> RunStore:
+            progress: Optional[ProgressFn] = None,
+            phase: Optional[PhaseFn] = None) -> RunStore:
         store = self.prepare(input_path, progress=progress)
         manifest = store.load_manifest()
         self._apply_language(manifest.get("source_lang") or self.config.source_lang)
@@ -231,6 +233,8 @@ class Orchestrator:
         context = RollingContext.from_dict(store.load_context() or {})
         style = self.analyzer.style_brief(store.load_analysis() or {})
         # 翻译前预扫源文，建立全书理解（幂等、可续跑）；全书概览注入每章翻译
+        if phase:
+            phase("prescan", "全书理解预扫")
         book_synopsis = self._build_understanding(store, progress=progress)
 
         if only_chapter is not None:
@@ -243,6 +247,8 @@ class Orchestrator:
             ]
 
         total, done = self._progress_counts(store, progress_chapters)
+        if phase:
+            phase("translating", "正文翻译")
         store.log_event(
             "translate_run_started",
             only_chapter=only_chapter,
@@ -314,12 +320,13 @@ class Orchestrator:
                 workers=max(1, self.config.pipeline.prescan_concurrency),
             )
             workers = max(1, self.config.pipeline.prescan_concurrency)
+            prescan_done = len(chapters) - len(todo)
             if progress:
-                progress(0, len(todo), "预扫章节梗概")
+                progress(prescan_done, len(chapters), "预扫章节梗概")
             with ThreadPoolExecutor(max_workers=workers) as ex:
                 futs = {ex.submit(self.synopsizer.digest_chapter, src): ci
                         for ci, src in todo}
-                for n_done, fut in enumerate(as_completed(futs), 1):
+                for fut in as_completed(futs):
                     ci = futs[fut]
                     loaded[ci].meta["source_digest"] = fut.result()  # 失败时 _ask_text 已回退 ""
                     store.save_chapter(loaded[ci])
@@ -328,8 +335,9 @@ class Orchestrator:
                         chapter=ci,
                         digest=loaded[ci].meta["source_digest"],
                     )
+                    prescan_done += 1
                     if progress:
-                        progress(n_done, len(todo), "预扫章节梗概")
+                        progress(prescan_done, len(chapters), "预扫章节梗概")
 
         # 按 manifest 章序组装（与并发完成顺序无关）
         digests = [loaded[c.get("index", i)].meta.get("source_digest", "") or ""
@@ -779,6 +787,7 @@ class Orchestrator:
 
     def run_steps(self, input_path: str, steps, *,
                   progress: Optional[ProgressFn] = None,
+                  phase: Optional[PhaseFn] = None,
                   out_format: str = "epub", out_path: str | None = None) -> dict[str, Any]:
         """按需执行步骤子集（可单选可全选）。steps ⊆ ALL_STEPS。"""
         from ..agents.consistency import ConsistencyChecker
@@ -789,7 +798,9 @@ class Orchestrator:
         run_steps_input = sorted(steps)
 
         if "translate" in steps:
-            store = self.run(input_path, progress=progress)
+            if phase:
+                phase("preparing", "准备图书")
+            store = self.run(input_path, progress=progress, phase=phase)
         else:
             store = self.prepare(input_path, progress=progress)
             m = store.load_manifest()
@@ -801,6 +812,8 @@ class Orchestrator:
         report: dict[str, Any] | None = None
         try:
             if "qa" in steps:
+                if phase:
+                    phase("qa", "全书一致性检查")
                 if progress:
                     progress(0, 0, "一致性 QA…")
                 qa_issues = ConsistencyChecker(self.client, self.config).check(store, glossary)
@@ -812,6 +825,8 @@ class Orchestrator:
 
             self._flush_usage(store, scope="pipeline")
             if "report" in steps:
+                if phase:
+                    phase("reporting", "生成报告")
                 if progress:
                     progress(0, 0, "生成报告…")
                 report = build_report(store, glossary)
@@ -824,6 +839,8 @@ class Orchestrator:
 
         outputs: list[str] = []
         if "assemble" in steps:
+            if phase:
+                phase("assembling", "生成译文")
             if progress:
                 progress(0, 0, "回填译文…")
             out_cfg = self.config.output
@@ -871,11 +888,12 @@ class Orchestrator:
         }
 
     def run_all(self, input_path: str, *, progress: Optional[ProgressFn] = None,
+                phase: Optional[PhaseFn] = None,
                 out_format: str = "epub", out_path: str | None = None,
                 do_qa: bool | None = None) -> dict[str, Any]:
         """翻译 → 一致性 QA → 报告 → 回填 EPUB，返回结果汇总。"""
         steps = {"translate", "report", "assemble"}
         if do_qa if do_qa is not None else self.config.pipeline.consistency_qa:
             steps.add("qa")
-        return self.run_steps(input_path, steps, progress=progress,
+        return self.run_steps(input_path, steps, progress=progress, phase=phase,
                               out_format=out_format, out_path=out_path)
