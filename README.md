@@ -14,6 +14,34 @@ export DEEPSEEK_API_KEY=sk-...
 uv run trans-novel translate book.epub
 ```
 
+## 跨平台 Web UI
+
+文译还提供一个本机 Web 工作台，复用同一套 Python 翻译引擎，支持 macOS、Linux 和 Windows。它默认只监听本机地址，不提供远程账户或多用户服务。
+
+macOS / Linux：
+
+```bash
+./script/start-webui.sh
+```
+
+Windows：
+
+```bat
+script\start-webui.bat
+```
+
+启动脚本会自动选择可用端口、启动服务并打开默认浏览器。默认地址为 `http://127.0.0.1:8787`；若该端口被占用，会顺延选择下一个可用端口。
+
+前端开发：
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+发布静态资源已经放在 `web/dist`，普通用户启动 Web UI 不需要安装 Node。修改前端后运行 `npm run build` 更新该目录。
+
 翻译完成后，默认在源文件所在目录的 `output/` 中生成单语中文版 `book.zh.epub`；也可按需生成原文对照版 `book.zh-bi.epub`。运行状态、章节 JSON、术语库和报告写入 `state/`。中断后可继续：
 
 ```bash
