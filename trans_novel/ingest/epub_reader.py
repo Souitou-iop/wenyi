@@ -15,13 +15,18 @@ import posixpath
 import xml.etree.ElementTree as ET
 import zipfile
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from .models import KIND_HEADING, KIND_TEXT, Chapter, Document, Segment
 
 _CONTAINER = "META-INF/container.xml"
 _BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote"}
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+_INLINE_TAGS = {
+    "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "del", "dfn",
+    "em", "i", "ins", "kbd", "mark", "q", "ruby", "s", "samp", "small",
+    "span", "strong", "sub", "sup", "time", "u", "var",
+}
 
 
 def _find_opf_path(zf: zipfile.ZipFile) -> str:
@@ -142,6 +147,38 @@ def _looks_like_internal_title(title: str, href: str, book_title: str = "") -> b
     return (bool(base) and stripped == base) or (bool(book_title) and stripped == book_title.strip())
 
 
+def _wrap_direct_body_text(soup: BeautifulSoup) -> None:
+    """Wrap loose body text and inline ruby runs so they can be translated and replaced."""
+    body = soup.body
+    if body is None:
+        return
+
+    pending: list[NavigableString | Tag] = []
+
+    def flush() -> None:
+        if not pending:
+            return
+        wrapper = soup.new_tag("span")
+        wrapper["data-tn-loose"] = ""
+        pending[0].insert_before(wrapper)
+        for node in pending:
+            wrapper.append(node.extract())
+        pending.clear()
+
+    for child in list(body.children):
+        if isinstance(child, NavigableString):
+            if child.strip() or pending:
+                pending.append(child)
+        elif isinstance(child, Tag) and child.name in _INLINE_TAGS:
+            if child.get_text(strip=True):
+                pending.append(child)
+            else:
+                flush()
+        else:
+            flush()
+    flush()
+
+
 def _extract_chapter(
     html: str,
     chapter_index: int,
@@ -152,15 +189,19 @@ def _extract_chapter(
 ) -> tuple[str, list[Segment], str]:
     """解析单个 XHTML 文档，返回 (标题, segments, 带标记的模板 HTML)。"""
     soup = BeautifulSoup(html, "html.parser")
+    _wrap_direct_body_text(soup)
     segments: list[Segment] = []
     idx = 0
-    for el in soup.find_all(_BLOCK_TAGS):
+    for el in soup.find_all(
+        lambda tag: tag.name in _BLOCK_TAGS or tag.has_attr("data-tn-loose")
+    ):
         # 跳过嵌套在另一个块级元素内的块（避免重复计数，如 blockquote 里的 p）
         if any(getattr(p, "name", None) in _BLOCK_TAGS for p in el.parents):
             continue
         text = el.get_text().strip()
         if not text:
             continue
+        el.attrs.pop("data-tn-loose", None)
         anchor = f"tn{chapter_index}_{idx}"
         el["data-tn-id"] = anchor
         kind = KIND_HEADING if el.name in _HEADING_TAGS else KIND_TEXT

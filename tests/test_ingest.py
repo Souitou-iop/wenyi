@@ -9,7 +9,9 @@ import zipfile
 
 from trans_novel.ingest.segmenter import (
     load_document, chapter_batches, split_long_segments, _split_text)
+from trans_novel.ingest.epub_reader import _extract_chapter
 from trans_novel.ingest.models import KIND_HEADING, KIND_TEXT, Chapter, Segment
+from trans_novel.assemble.writer import _render_chapter_html
 from tests.sample_data import write_sample_txt, write_sample_epub
 
 
@@ -235,6 +237,35 @@ class TestSplitLongSegments(unittest.TestCase):
 
 
 class TestEpubIngest(unittest.TestCase):
+    def test_epub_extracts_direct_body_text_with_ruby(self):
+        html = """<html xmlns="http://www.w3.org/1999/xhtml"><body>
+先輩は<ruby>東京<rt>とうきょう</rt></ruby>へ行った。
+<p>&#160;</p>
+「またね」
+<div><p>块内正文。</p></div>
+</body></html>"""
+        _title, segments, template = _extract_chapter(
+            html, 0, "chapter.xhtml")
+
+        self.assertEqual(
+            [s.source for s in segments],
+            ["先輩は東京へ行った。", "「またね」", "块内正文。"],
+        )
+        self.assertTrue(all(s.anchor and s.anchor in template for s in segments))
+
+        segments[0].target = "前辈去了东京。"
+        segments[1].target = "“再见。”"
+        rendered = _render_chapter_html(Chapter(
+            index=0,
+            segments=segments,
+            href="chapter.xhtml",
+            template=template,
+        ))
+        self.assertIn("前辈去了东京。", rendered)
+        self.assertIn("“再见。”", rendered)
+        self.assertNotIn("先輩", rendered)
+        self.assertNotIn("とうきょう", rendered)
+
     def test_epub_chapters_and_anchors(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "novel.epub")
