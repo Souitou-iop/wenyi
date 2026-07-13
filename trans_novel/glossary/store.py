@@ -158,45 +158,59 @@ class GlossaryStore:
         同 source 已存在且 target 不同时保留当前译法，把新译法作为候选记录，
         避免自动提取结果在无人确认时改写术语表。
         """
-        existing = self.get_term(term.source)
-        now = time.time()
-        if existing is None:
-            self.conn.execute(
-                """INSERT INTO glossary
-                   (source,target,reading,type,gender,aliases,first_chapter,note,
-                    status,updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (
-                    term.source, term.target, term.reading, term.type, term.gender,
-                    json.dumps(term.aliases, ensure_ascii=False),
-                    term.first_chapter if term.first_chapter is not None else chapter,
-                    term.note, term.status, now,
-                ),
-            )
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            existing = self.get_term(term.source)
+            now = time.time()
+            if existing is None:
+                self.conn.execute(
+                    """INSERT INTO glossary
+                       (source,target,reading,type,gender,aliases,first_chapter,note,
+                        status,updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        term.source, term.target, term.reading, term.type, term.gender,
+                        json.dumps(term.aliases, ensure_ascii=False),
+                        term.first_chapter if term.first_chapter is not None else chapter,
+                        term.note, term.status, now,
+                    ),
+                )
+                result = "inserted"
+            elif existing.target == term.target:
+                # 合并别名 / 补全字段，不算冲突
+                merged_aliases = sorted(set(existing.aliases) | set(term.aliases))
+                self.conn.execute(
+                    """UPDATE glossary SET reading=COALESCE(NULLIF(?,''),reading),
+                       gender=COALESCE(NULLIF(?,''),gender), aliases=?,
+                       note=COALESCE(NULLIF(?,''),note), updated_at=? WHERE source=?""",
+                    (
+                        term.reading,
+                        term.gender,
+                        json.dumps(merged_aliases, ensure_ascii=False),
+                        term.note,
+                        now,
+                        term.source,
+                    ),
+                )
+                result = "unchanged"
+            else:
+                # target 不同：保留当前译法，记录候选译法等待人工裁决。
+                self._log_conflict(
+                    term.source,
+                    existing.target,
+                    term.target,
+                    chapter,
+                )
+                self.conn.execute(
+                    "UPDATE glossary SET status='conflict', updated_at=? WHERE source=?",
+                    (now, term.source),
+                )
+                result = "conflict"
             self.conn.commit()
-            return "inserted"
-
-        if existing.target == term.target:
-            # 合并别名 / 补全字段，不算冲突
-            merged_aliases = sorted(set(existing.aliases) | set(term.aliases))
-            self.conn.execute(
-                """UPDATE glossary SET reading=COALESCE(NULLIF(?,''),reading),
-                   gender=COALESCE(NULLIF(?,''),gender), aliases=?, note=COALESCE(NULLIF(?,''),note),
-                   updated_at=? WHERE source=?""",
-                (term.reading, term.gender, json.dumps(merged_aliases, ensure_ascii=False),
-                 term.note, now, term.source),
-            )
-            self.conn.commit()
-            return "unchanged"
-
-        # target 不同：保留当前译法，记录候选译法等待人工裁决。
-        self._log_conflict(term.source, existing.target, term.target, chapter)
-        self.conn.execute(
-            "UPDATE glossary SET status='conflict', updated_at=? WHERE source=?",
-            (now, term.source),
-        )
-        self.conn.commit()
-        return "conflict"
+            return result
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def _log_conflict(self, source, existing_target, proposed_target, chapter):
         self.conn.execute(

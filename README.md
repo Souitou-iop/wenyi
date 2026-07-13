@@ -16,7 +16,15 @@ uv run trans-novel translate book.epub
 
 ## 跨平台 Web UI
 
-文译还提供一个本机 Web 工作台，复用同一套 Python 翻译引擎，支持 macOS、Linux 和 Windows。它默认只监听本机地址，不提供远程账户或多用户服务。
+文译还提供一个轻量的本地单用户 Web 工作台，复用同一套 Python 翻译引擎，支持 macOS、Linux 和 Windows。它只监听本机回环地址，不提供远程账户或多用户服务，请勿将其作为公网服务部署。
+
+安装 wheel 后可直接启动：
+
+```bash
+trans-novel-web
+```
+
+从源码运行时可执行 `uv run trans-novel-web`，也可使用会自动同步依赖并打开浏览器的启动脚本。
 
 macOS / Linux：
 
@@ -30,7 +38,11 @@ Windows：
 script\start-webui.bat
 ```
 
-启动脚本会自动选择可用端口、启动服务并打开默认浏览器。默认地址为 `http://127.0.0.1:8787`；若该端口被占用，会顺延选择下一个可用端口。
+Web UI 默认地址为 `http://127.0.0.1:8787`；若该端口被占用，会顺延选择下一个可用端口。启动脚本还会自动打开默认浏览器。
+
+模型配置支持 DeepSeek、OpenAI、OpenRouter、OpenAI 兼容端点、Ollama 和 vLLM。三档模型、API 地址与密钥可在 Web UI 的“模型配置”中管理；兼容端点还可选择 DeepSeek、OpenAI、OpenRouter 或不转换思考参数协议。
+
+每个翻译任务都有独立的配置快照和状态目录。工作台可查看和管理术语及冲突、全书风格概要、逐章原文与译文、审校问题和人工修订；修改后可重新导出单语或双语 EPUB/TXT。任务详情还提供持久化事件记录和 Token 用量统计，包括模型档位、处理阶段与缓存命中情况。
 
 前端开发：
 
@@ -40,9 +52,11 @@ npm install
 npm run dev
 ```
 
-发布静态资源已经放在 `web/dist`，普通用户启动 Web UI 不需要安装 Node。修改前端后运行 `npm run build` 更新该目录。
+发布静态资源已包含在 wheel 中，普通用户启动 Web UI 不需要安装 Node。源码仓库同时保留 `web/dist` 供本地运行；修改前端后运行 `npm run build` 更新该目录。
 
-翻译完成后，默认在源文件所在目录的 `output/` 中生成单语中文版 `book.zh.epub`；也可按需生成原文对照版 `book.zh-bi.epub`。运行状态、章节 JSON、术语库和报告写入 `state/`。中断后可继续：
+Web UI 的图书、任务状态和内部产物默认保存在 `~/.wenyi-webui`，完成后的文件可从工作台下载。所有数据均保存在本机文件和任务专属状态中，不需要数据库、Redis 或容器服务。
+
+使用 CLI 翻译时，默认在源文件所在目录的 `output/` 中生成单语中文版 `book.zh.epub`；也可按需生成原文对照版 `book.zh-bi.epub`。运行状态、章节 JSON、术语库和报告写入 `state/`。中断后可继续：
 
 ```bash
 uv run trans-novel resume book.epub
