@@ -94,8 +94,6 @@ export type GlossaryTerm = {
   type: string;
   gender: string;
   note: string;
-  confidence: "low" | "medium" | "high" | null;
-  locked: boolean;
   status: string;
 };
 
@@ -298,11 +296,6 @@ export const api = {
     request<{ deleted: boolean }>(
       `/api/tasks/${id}/glossary/terms/${encodeURIComponent(source)}`,
       { method: "DELETE" },
-    ),
-  setGlossaryLock: (id: string, source: string, locked: boolean) =>
-    request<GlossaryTerm>(
-      `/api/tasks/${id}/glossary/terms/${encodeURIComponent(source)}/${locked ? "lock" : "unlock"}`,
-      { method: "POST" },
     ),
   glossaryConflicts: (id: string) =>
     request<{ conflicts: GlossaryConflict[] }>(`/api/tasks/${id}/glossary/conflicts`),

@@ -195,18 +195,14 @@ function GlossaryPanel({ task, onError }: { task: Task; onError: (message: strin
       {terms.length ? (
         <div className="term-table-wrap">
           <table className="advanced-table">
-            <thead><tr><th>原文 / 读音</th><th>译文</th><th>类型</th><th>置信度</th><th><span className="sr-only">操作</span></th></tr></thead>
+            <thead><tr><th>原文 / 读音</th><th>译文</th><th>类型</th><th><span className="sr-only">操作</span></th></tr></thead>
             <tbody>
               {terms.map((term) => (
                 <tr key={term.source}>
                   <td><strong>{term.source}</strong>{term.reading ? <small>{term.reading}</small> : null}</td>
                   <td>{term.target}</td>
                   <td>{term.type || "—"}</td>
-                  <td>{term.confidence == null ? "—" : { low: "低", medium: "中", high: "高" }[term.confidence]}</td>
                   <td className="table-actions">
-                    <button aria-label={`${term.locked ? "解锁" : "锁定"}术语「${term.source}」`} disabled={!editable || Boolean(pending)} onClick={() => void mutate(`lock-${term.source}`, () => api.setGlossaryLock(task.id, term.source, !term.locked))}>
-                      {term.locked ? "解锁" : "锁定"}
-                    </button>
                     <button
                       className="danger-link"
                       aria-label={`删除术语「${term.source}」`}

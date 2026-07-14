@@ -188,8 +188,6 @@ class GlossaryTermRequest(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     first_chapter: int | None = None
     note: str = ""
-    confidence: Literal["low", "medium", "high"] = "medium"
-    locked: bool = False
 
     @field_validator("source", "target")
     @classmethod
@@ -681,8 +679,6 @@ def _term_data(term: GlossaryTerm) -> dict[str, Any]:
         "aliases": term.aliases,
         "first_chapter": term.first_chapter,
         "note": term.note,
-        "confidence": term.confidence,
-        "locked": term.locked,
         "status": term.status,
     }
 
@@ -1346,36 +1342,6 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
         workspace.log_event("web_glossary_term_deleted")
         return {"deleted": True}
 
-    @app.post("/api/tasks/{task_id}/glossary/terms/{source}/lock")
-    def lock_glossary_term(task_id: str, source: str):
-        _, workspace = _workspace_or_409(manager, task_id)
-        if not Path(workspace.glossary_path).is_file():
-            raise HTTPException(409, "术语表尚未生成")
-        glossary = GlossaryStore(workspace.glossary_path)
-        try:
-            if glossary.get_term(source) is None:
-                raise HTTPException(404, "术语不存在")
-            glossary.lock_term(source)
-            term = glossary.get_term(source)
-        finally:
-            glossary.close()
-        return _term_data(term)
-
-    @app.post("/api/tasks/{task_id}/glossary/terms/{source}/unlock")
-    def unlock_glossary_term(task_id: str, source: str):
-        _, workspace = _workspace_or_409(manager, task_id)
-        if not Path(workspace.glossary_path).is_file():
-            raise HTTPException(409, "术语表尚未生成")
-        glossary = GlossaryStore(workspace.glossary_path)
-        try:
-            if glossary.get_term(source) is None:
-                raise HTTPException(404, "术语不存在")
-            glossary.unlock_term(source)
-            term = glossary.get_term(source)
-        finally:
-            glossary.close()
-        return _term_data(term)
-
     @app.get("/api/tasks/{task_id}/glossary/conflicts")
     def get_glossary_conflicts(task_id: str):
         task = manager.get(task_id)
@@ -1429,7 +1395,8 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
                 if request.choice == "current"
                 else conflict["proposed_target"]
             )
-            glossary.lock_term(conflict["source"], target)
+            if not glossary.resolve_term(conflict["source"], target):
+                raise HTTPException(404, "术语不存在")
             glossary.mark_conflicts_resolved(conflict["source"])
             term = glossary.get_term(conflict["source"])
         finally:

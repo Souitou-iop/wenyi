@@ -995,7 +995,7 @@ class TestWebAPI(unittest.TestCase):
         self.assertEqual(analysis["style_guide"], "Use short sentences")
         self.assertEqual(analysis["book_synopsis"], "Updated synopsis")
 
-    def test_glossary_crud_lock_unlock_and_conflict_resolution(self):
+    def test_glossary_crud_and_conflict_resolution(self):
         _, workspace = self._make_workspace()
 
         created = self.client.post(
@@ -1005,30 +1005,20 @@ class TestWebAPI(unittest.TestCase):
                 "target": "兔子",
                 "reading": "rabbit",
                 "type": "人物",
-                "confidence": "high",
             },
         )
         self.assertEqual(created.status_code, 200)
+        self.assertNotIn("confidence", created.json())
+        self.assertNotIn("locked", created.json())
         filtered = self.client.get(
             "/api/tasks/task-id/glossary/terms",
             params={"q": "rab", "type": "人物"},
         ).json()
         self.assertEqual([item["source"] for item in filtered["terms"]], ["Rabbit"])
-        locked = self.client.post(
-            "/api/tasks/task-id/glossary/terms/Rabbit/lock"
-        ).json()
-        self.assertTrue(locked["locked"])
-        unlocked = self.client.post(
-            "/api/tasks/task-id/glossary/terms/Rabbit/unlock"
-        ).json()
-        self.assertFalse(unlocked["locked"])
 
         glossary = GlossaryStore(workspace.glossary_path)
-        glossary.upsert_term(GlossaryTerm(
-            source="Alice",
-            target="艾丽丝",
-            confidence="low",
-        ))
+        glossary.upsert_term(GlossaryTerm(source="Alice", target="爱丽丝"))
+        glossary.upsert_term(GlossaryTerm(source="Alice", target="艾丽丝"))
         glossary.close()
         conflict = self.client.get(
             "/api/tasks/task-id/glossary/conflicts"
@@ -1038,7 +1028,7 @@ class TestWebAPI(unittest.TestCase):
             json={"choice": "proposed"},
         ).json()
         self.assertEqual(resolved["target"], "艾丽丝")
-        self.assertTrue(resolved["locked"])
+        self.assertEqual(resolved["status"], "ok")
         self.assertEqual(
             self.client.delete(
                 "/api/tasks/task-id/glossary/terms/Rabbit"

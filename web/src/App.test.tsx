@@ -314,23 +314,24 @@ describe("advanced workspace", () => {
             type: "term",
             gender: "",
             note: "",
-            confidence: "high",
-            locked: false,
             status: "active",
           }],
         });
       }
       if (path === "/api/tasks/task-1/glossary/conflicts") return response({ conflicts: [] });
-      if (path.endsWith("/lock")) return response({ detail: "锁定失败" }, 500);
+      if (path.endsWith("/%E7%8C%AB") && init?.method === "DELETE") {
+        return response({ detail: "删除失败" }, 500);
+      }
       return response({});
     });
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: "术语" }));
     expect(await screen.findByText("cat")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "锁定术语「猫」" }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "删除术语「猫」" }));
 
-    expect(await screen.findByText("锁定失败")).toBeVisible();
+    expect(await screen.findByText("删除失败")).toBeVisible();
     expect(screen.getByText("cat")).toBeVisible();
   });
 
