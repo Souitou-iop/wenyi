@@ -66,7 +66,7 @@ class TestWebAPI(unittest.TestCase):
         )
         state_dir = self.root / "state" / "task-id"
         workspace = RunStore(str(state_dir / "Book"))
-        workspace.init_from_document(Document(
+        workspace.save_manifest(workspace.stage_document(Document(
             title="Book",
             source_lang="en",
             target_lang="zh",
@@ -85,7 +85,7 @@ class TestWebAPI(unittest.TestCase):
                     "backtranslation_issues": [{"detail": "back"}],
                 },
             )],
-        ))
+        )))
         manifest = workspace.load_manifest()
         manifest["chapters"][0]["status"] = chapter_status
         workspace.save_manifest(manifest)

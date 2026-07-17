@@ -1,12 +1,14 @@
-# 文译
+# Wenyi
 
-![文译双语对照版阅读效果](docs/images/bilingual-preview.png)
+**English** | [简体中文](docs/zh/README.md)
 
-将多语言 EPUB、FB2、TXT 小说翻译为中文的命令行工具。它以长篇小说的翻译质量为重点：全书预扫、滚动上下文、实时术语库、润色和审校均可按需启用。
+![Wenyi bilingual EPUB preview](docs/images/bilingual-preview.png)
 
-## 快速开始
+Wenyi is a command-line tool for translating EPUB, FB2, TXT, Markdown, HTML, and PDF novels from multiple languages into Chinese. It focuses on long-form translation quality through whole-book analysis, rolling context, an evolving glossary, polishing, and review stages.
 
-需要 Python 3.10+ 与 [uv](https://docs.astral.sh/uv/)。
+## Quick start
+
+Wenyi requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
@@ -14,37 +16,37 @@ export DEEPSEEK_API_KEY=sk-...
 uv run trans-novel translate book.epub
 ```
 
-## 跨平台 Web UI
+## Cross-platform Web UI
 
-文译还提供一个轻量的本地单用户 Web 工作台，复用同一套 Python 翻译引擎，支持 macOS、Linux 和 Windows。它只监听本机回环地址，不提供远程账户或多用户服务，请勿将其作为公网服务部署。
+Wenyi also ships a lightweight local single-user web workbench that reuses the same Python translation engine on macOS, Linux, and Windows. It only listens on the loopback address and does not serve remote accounts or multiple users; do not deploy it as a public service.
 
-安装 wheel 后可直接启动：
+After installing the wheel, start it directly:
 
 ```bash
 trans-novel-web
 ```
 
-从源码运行时可执行 `uv run trans-novel-web`，也可使用会自动同步依赖并打开浏览器的启动脚本。
+From source, run `uv run trans-novel-web`, or use the launcher scripts that sync dependencies and open the browser for you.
 
-macOS / Linux：
+macOS / Linux:
 
 ```bash
 ./script/start-webui.sh
 ```
 
-Windows：
+Windows:
 
 ```bat
 script\start-webui.bat
 ```
 
-Web UI 默认地址为 `http://127.0.0.1:8787`；若该端口被占用，会顺延选择下一个可用端口。启动脚本还会自动打开默认浏览器。
+The Web UI defaults to `http://127.0.0.1:8787`; if that port is busy, the next available port is chosen. The launcher also opens the default browser.
 
-模型配置支持 DeepSeek、OpenAI、OpenRouter、OpenAI 兼容端点、Ollama 和 vLLM。三档模型、API 地址与密钥可在 Web UI 的“模型配置”中管理；兼容端点还可选择 DeepSeek、OpenAI、OpenRouter 或不转换思考参数协议。
+Model configuration supports DeepSeek, OpenAI, OpenRouter, OpenAI-compatible endpoints, Ollama, and vLLM. The three model tiers, API base URL, and API key can be managed in the Web UI's Model Configuration panel; compatible endpoints can additionally choose between DeepSeek, OpenAI, OpenRouter, or no thinking-parameter protocol conversion.
 
-每个翻译任务都有独立的配置快照和状态目录。工作台可查看和管理术语及冲突、全书风格概要、逐章原文与译文、审校问题和人工修订；修改后可重新导出单语或双语 EPUB/TXT。任务详情还提供持久化事件记录和 Token 用量统计，包括模型档位、处理阶段与缓存命中情况。
+Each translation task has its own configuration snapshot and state directory. The workbench lets you inspect and manage glossary terms and conflicts, the whole-book style profile, per-chapter source and target text, review issues, and manual revisions; after edits you can re-export monolingual or bilingual EPUB/TXT. Task details also expose persistent event logs and token usage statistics, broken down by model tier, pipeline stage, and cache hit rate.
 
-前端开发：
+Frontend development:
 
 ```bash
 cd web
@@ -52,49 +54,53 @@ npm install
 npm run dev
 ```
 
-发布静态资源已包含在 wheel 中，普通用户启动 Web UI 不需要安装 Node。源码仓库同时保留 `web/dist` 供本地运行；修改前端后运行 `npm run build` 更新该目录。
+The release static assets are bundled into the wheel, so ordinary users do not need Node to start the Web UI. The source repository keeps `web/dist` for local runs; run `npm run build` after frontend changes to refresh it.
 
-Web UI 的图书、任务状态和内部产物默认保存在 `~/.wenyi-webui`，完成后的文件可从工作台下载。所有数据均保存在本机文件和任务专属状态中，不需要数据库、Redis 或容器服务。
+The Web UI stores books, task state, and internal artifacts under `~/.wenyi-webui` by default; finished files can be downloaded from the workbench. All data lives in local files and task-scoped state—no database, Redis, or container services required.
 
-使用 CLI 翻译时，默认在源文件所在目录的 `output/` 中生成单语中文版 `book.zh.epub`；也可按需生成原文对照版 `book.zh-bi.epub`。运行状态、章节 JSON、术语库和报告写入 `state/`。中断后可继续：
+By default, Wenyi writes a monolingual Chinese EPUB to the source file's `output/` directory as `book.zh.epub`. A bilingual source-and-translation edition can be enabled when needed. Runtime state, chapter JSON files, the glossary database, and reports are stored under `state/`. To continue an interrupted run:
 
 ```bash
 uv run trans-novel resume book.epub
 uv run trans-novel status book.epub
 ```
 
-## 支持范围
+## Supported formats and output
 
-- 输入：EPUB、FB2、TXT。
-- 输出：默认生成单语 EPUB，可选双语对照版；可通过 `--format txt` 导出纯文本。
-- EPUB：尽量保留原书样式、图片、目录与锚点；译文元数据默认设为简体中文，并将竖排样式转为横排。
-- 语言：默认由模型识别源语言，也可在 `config.yaml` 固定为语言代码。
+- Input: EPUB, FB2, TXT, Markdown, HTML, and PDF.
+- Output: monolingual EPUB by default, optional bilingual EPUB, or TXT, HTML, and Markdown exports.
+- PDF import: the first run uses MinerU and requires `MINERU_API_KEY`. The converted HTML is cached at `state/<book>/source/converted.html` and reused by later runs.
+- EPUB preservation: Wenyi attempts to retain the original styles, images, table of contents, and anchors while converting translated content to horizontal layout.
+- Language detection: the source language is detected automatically by default, or it can be fixed to an ISO language code in `config.yaml`.
 
-可通过命令行临时选择产物：
+Select output editions from the command line:
 
 ```bash
-uv run trans-novel translate book.epub --bilingual           # 同时生成单语版和双语版
-uv run trans-novel translate book.epub --no-mono --bilingual # 仅生成双语版
+uv run trans-novel translate book.epub --bilingual           # monolingual and bilingual
+uv run trans-novel translate book.epub --no-mono --bilingual # bilingual only
 ```
 
-双语版默认译文在上、原文在下，可在 `config.yaml` 中将 `output.bilingual_order` 改为 `source_first`。
+The bilingual edition places the translation before the source text by default. Set `output.bilingual_order` to `source_first` in `config.yaml` to reverse the order.
 
-## 文档
+## Documentation
 
-- [使用指南](docs/usage.md)：安装、Windows 使用、输入输出、续跑和工具命令。
-- [配置说明](docs/configuration.md)：模型、源语言、流水线开关、切分与路径配置。
-- [翻译流程](docs/pipeline.md)：预扫、术语、上下文、润色、审校和断点续跑如何协作。
-- [贡献指南](CONTRIBUTING.md)：开发、测试和贡献要求。
+- [Usage guide](docs/usage.md): installation, Windows setup, input and output, resuming, and utility commands.
+- [Configuration](docs/configuration.md): providers, languages, pipeline switches, segmentation, and paths.
+- [Translation pipeline](docs/pipeline.md): whole-book analysis, terminology, context, polishing, review, and resumability.
+- [Contributing](CONTRIBUTING.md): development, testing, and contribution guidelines.
 
-公版书翻译生成的状态目录可在 [wenyi-bookcase](https://github.com/BigDawnGhost/wenyi-bookcase) 查看，也欢迎提交分享；请勿提交或分享无授权的版权文本、私人书籍或包含敏感信息的 `state/` 目录。
+Translated state directories for public-domain books may be shared through [wenyi-bookcase](https://github.com/BigDawnGhost/wenyi-bookcase). Do not publish copyrighted text, private books, or `state/` directories containing sensitive information without permission.
 
-## 憧憬与不足
+## Project status
 
-本项目为作者个人兴趣所开发，仅在于针对长文本书籍的译介做出一份微薄的努力，未来想让翻译在够准确的前提下更加顺畅，努力从可读向好读迈进。现阶段翻译文本一些口头禅前后翻译不一致，专有名词翻译不准确的问题，已经改进！如果还有什么问题，可以提交issue，如果你有什么想法，欢迎在讨论区提出，如果你有一定的编程能力，欢迎给我提交PR，让这个项目变得更好。👏
+Wenyi is an early-stage personal project focused on making long-form machine translation more accurate, consistent, and readable. Reports of inconsistent names, recurring expressions, omissions, formatting problems, and provider compatibility issues are welcome through GitHub Issues and Discussions. Pull requests are also appreciated.
 
-项目交流QQ群：1055065098
+Community:
 
-## 星标历史
+- [Join the Wenyi Discord server](https://discord.gg/Tybfva4HT)
+- QQ group: 1055065098
+
+## Star history
 
 <a href="https://www.star-history.com/?repos=BigDawnGhost%2FWenyi&type=date&legend=top-left">
  <picture>
