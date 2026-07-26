@@ -6,8 +6,8 @@ import asyncio
 import json
 import mimetypes
 import os
-import signal
 import shutil
+import signal
 import socket
 import sys
 import threading
@@ -34,11 +34,11 @@ from openai import (
 )
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .book_inspector import inspect_book
 from .assemble.writer import assemble
+from .book_inspector import inspect_book
 from .glossary.store import GlossaryStore, GlossaryTerm
 from .ingest.segmenter import load_document
-from .pipeline.runstore import RunStore, STATUS_DONE
+from .pipeline.runstore import STATUS_DONE, RunStore
 
 SUPPORTED_BOOK_TYPES = {".epub", ".fb2", ".txt"}
 MAX_UPLOAD_BYTES = 256 * 1024 * 1024
@@ -1568,12 +1568,14 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
             )
         except Exception as exc:
             shutil.rmtree(export_dir, ignore_errors=True)
+            error = str(exc)[-2000:]
+
             def fail(current):
                 saved = next(
                     item for item in current.get("exports") or []
                     if item.get("id") == export_id
                 )
-                saved.update(status="failed", error=str(exc)[-2000:])
+                saved.update(status="failed", error=error)
 
             manager.update(task_id, fail)
             raise HTTPException(500, "重新导出失败") from exc

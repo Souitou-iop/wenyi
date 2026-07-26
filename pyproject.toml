@@ -18,13 +18,27 @@ dependencies = [
     "fastapi>=0.115",      # 本机 Web UI 服务
     "uvicorn>=0.34",       # ASGI 服务器
     "python-multipart>=0.0.20", # 图书上传
+    "json-repair>=0.61,<1", # 仅用于 Reviewer 畸形 JSON 的本地修复
     "pypdf>=6.14.2",       # PDF 输入解析
+    "google-genai>=2.13.0",
 ]
 
 [dependency-groups]
 dev = [
+    "pre-commit>=3.7",
     "pytest>=8.0",
+    "ruff>=0.12",
 ]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I import 排序
+select = ["E", "W", "F", "I"]
+# 超长行主要是中文 prompt 字面量，formatter 不会拆字符串
+ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

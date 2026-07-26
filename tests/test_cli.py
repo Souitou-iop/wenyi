@@ -9,7 +9,11 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from trans_novel.cli import _apply_store_languages, _configure_windows_console, app
+from trans_novel.cli import (
+    _apply_store_languages,
+    _configure_windows_console,
+    app,
+)
 from trans_novel.config import Config
 from trans_novel.ingest.errors import MinerUError
 
@@ -23,9 +27,7 @@ class FakeStore:
 
 class TestCliConfig(unittest.TestCase):
     def test_standalone_tools_restore_manifest_languages(self):
-        cfg = Config.from_dict(
-            {"language": {"source": "auto", "target": "zh"}}
-        )
+        cfg = Config.from_dict({"language": {"source": "auto", "target": "zh"}})
 
         class Store:
             @staticmethod
@@ -68,6 +70,7 @@ class TestCliConfig(unittest.TestCase):
         class FakeOrchestrator:
             def __init__(self, config):
                 captured["polish"] = config.pipeline.polish
+                captured["review"] = config.pipeline.review
 
             def run_all(self, input_path, **kwargs):
                 captured["run_all"] = kwargs
@@ -94,6 +97,7 @@ class TestCliConfig(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertTrue(captured["polish"])
+        self.assertFalse(captured["review"])
         self.assertIsNone(captured["run_all"]["do_qa"])
 
     def test_translate_flags_override_config_switches(self):
@@ -108,6 +112,7 @@ class TestCliConfig(unittest.TestCase):
         class FakeOrchestrator:
             def __init__(self, config):
                 captured["polish"] = config.pipeline.polish
+                captured["review"] = config.pipeline.review
 
             def run_all(self, input_path, **kwargs):
                 captured["run_all"] = kwargs
@@ -132,14 +137,21 @@ class TestCliConfig(unittest.TestCase):
         ):
             result = CliRunner().invoke(
                 app,
-                ["translate", "input.txt", "--no-polish", "--qa"],
+                [
+                    "translate",
+                    "input.txt",
+                    "--no-polish",
+                    "--review",
+                    "--qa",
+                ],
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertFalse(captured["polish"])
+        self.assertTrue(captured["review"])
         self.assertTrue(captured["run_all"]["do_qa"])
 
-    def test_translate_prepare_stops_before_translation(self):
+    def test_prepare_stops_before_translation(self):
         cfg = Config.from_dict(
             {
                 "llm": {"provider": "fake", "tiers": {"strong": {"model": "p"}}},
@@ -172,9 +184,6 @@ class TestCliConfig(unittest.TestCase):
                 captured["prepare"] = kwargs
                 return PreparedStore()
 
-            def run_all(self, input_path, **kwargs):
-                raise AssertionError("--prepare 不应进入翻译流程")
-
         with (
             patch("trans_novel.cli._load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
@@ -182,7 +191,7 @@ class TestCliConfig(unittest.TestCase):
         ):
             result = CliRunner().invoke(
                 app,
-                ["translate", "input.txt", "--prepare"],
+                ["prepare", "input.txt"],
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
@@ -190,7 +199,7 @@ class TestCliConfig(unittest.TestCase):
         self.assertIn("准备完成", result.output)
         self.assertIn("预扫 2/2 章", result.output)
 
-    def test_translate_prepare_rejects_chapter(self):
+    def test_translate_chapter_rejects_finish_options(self):
         cfg = Config.from_dict(
             {
                 "llm": {"provider": "fake", "tiers": {"strong": {"model": "p"}}},
@@ -202,57 +211,91 @@ class TestCliConfig(unittest.TestCase):
         ):
             result = CliRunner().invoke(
                 app,
-                ["translate", "input.txt", "--prepare", "--chapter", "0"],
+                ["translate", "input.txt", "--chapter", "0", "--qa"],
             )
 
         self.assertEqual(result.exit_code, 1, result.output)
-        self.assertIn("--prepare 不能与 --chapter", result.output)
+        self.assertIn("--chapter 只翻译并保存指定章节", result.output)
+        self.assertIn("--qa/--no-qa", result.output)
 
-    def test_resume_delegates_to_translate_without_audit_argument(self):
-        cfg = Config.from_dict(
-            {
-                "llm": {"provider": "fake", "tiers": {"strong": {"model": "p"}}},
-                "pipeline": {"polish": True, "consistency_qa": False},
-            }
-        )
-        captured = {}
-
-        class FakeOrchestrator:
-            def __init__(self, config):
-                captured["polish"] = config.pipeline.polish
-
-            def run_all(self, input_path, **kwargs):
-                captured["input_path"] = input_path
-                captured["run_all"] = kwargs
-                return {
-                    "report": {
-                        "summary": {
-                            "chapters_done": 1,
-                            "chapters_total": 1,
-                            "terms": 0,
-                        }
-                    },
-                    "qa_issues": [],
-                    "output": "out.txt",
-                    "store": FakeStore(),
-                }
-
-        with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
-            patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
-        ):
-            result = CliRunner().invoke(
-                app,
-                ["resume", "input.txt", "--format", "txt"],
-            )
+    def test_top_level_help_exposes_workflow_without_duplicate_aliases(self):
+        result = CliRunner().invoke(app, ["--help"])
 
         self.assertEqual(result.exit_code, 0, result.output)
-        self.assertEqual(captured["input_path"], "input.txt")
-        self.assertEqual(captured["run_all"]["out_format"], "txt")
-        self.assertIsNone(captured["run_all"]["out_path"])
-        self.assertIsNone(captured["run_all"]["do_qa"])
-        self.assertTrue(captured["polish"])
+        for command in (
+            "translate",
+            "prepare",
+            "review",
+            "qa",
+            "report",
+            "assemble",
+            "status",
+            "glossary",
+        ):
+            self.assertIn(command, result.output)
+        self.assertNotIn("resume", result.output)
+        self.assertNotIn("tools", result.output)
+
+    def test_glossary_help_exposes_action_subcommands(self):
+        result = CliRunner().invoke(app, ["glossary", "--help"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("list", result.output)
+        self.assertIn("conflicts", result.output)
+        self.assertIn("resolve", result.output)
+
+    def test_api_preflight_covers_model_commands(self):
+        for command in (
+            "translate",
+            "prepare",
+            "review",
+            "qa",
+        ):
+            with self.subTest(command=command):
+                with patch(
+                    "trans_novel.cli._validate_api_configuration",
+                    side_effect=RuntimeError("missing key"),
+                ) as validate:
+                    result = CliRunner().invoke(app, [command])
+                self.assertEqual(result.exit_code, 1, result.output)
+                self.assertIn("missing key", result.output)
+                validate.assert_called_once_with()
+
+    def test_api_preflight_skips_local_commands(self):
+        for args in (
+            ["status", "missing.txt"],
+            ["report", "missing.txt"],
+            ["glossary", "list", "missing.txt"],
+            ["glossary", "conflicts", "missing.txt"],
+            [
+                "glossary",
+                "resolve",
+                "missing.txt",
+                "source",
+                "target",
+            ],
+            ["assemble", "missing.txt"],
+        ):
+            with self.subTest(args=args):
+                with patch(
+                    "trans_novel.cli._validate_api_configuration",
+                    side_effect=AssertionError(f"{args} must not validate credentials"),
+                ) as validate:
+                    result = CliRunner().invoke(app, args)
+                self.assertEqual(result.exit_code, 1, result.output)
+                self.assertIn("输入文件不存在", result.output)
+                validate.assert_not_called()
+
+    def test_api_preflight_skips_help_at_every_level(self):
+        for args in (["--help"], ["translate", "--help"], ["glossary", "--help"]):
+            with self.subTest(args=args):
+                with patch(
+                    "trans_novel.cli._validate_api_configuration",
+                    side_effect=AssertionError("help must not validate credentials"),
+                ) as validate:
+                    result = CliRunner().invoke(app, args)
+                self.assertEqual(result.exit_code, 0, result.output)
+                validate.assert_not_called()
 
     def test_review_command_runs_final_review_with_overrides(self):
         cfg = Config.from_dict(
@@ -291,27 +334,44 @@ class TestCliConfig(unittest.TestCase):
         self.assertTrue(captured["kwargs"]["autofix"])
         self.assertIn("发现 1 项问题", result.output)
 
-    def test_translate_missing_input_exits_before_loading_config(self):
+    def test_translate_reports_missing_api_key_before_inspecting_input(self):
         missing = os.path.join(tempfile.gettempdir(), "trans-novel-missing.epub")
-        with patch(
-            "trans_novel.cli._load_config",
-            side_effect=AssertionError("config should not load"),
+        cfg = Config.from_dict({"llm": {"provider": "deepseek"}})
+        with (
+            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.cli.os.path.isfile") as isfile,
+            patch.dict(os.environ, {}, clear=True),
         ):
             result = CliRunner().invoke(app, ["translate", missing])
 
         self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("DEEPSEEK_API_KEY", result.output)
+        self.assertNotIn("输入文件不存在", result.output)
+        self.assertNotIn("Traceback", result.output)
+        isfile.assert_not_called()
+
+    def test_assemble_skips_api_preflight(self):
+        cfg = Config.from_dict({"llm": {"provider": "deepseek"}})
+        with (
+            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.cli.os.path.isfile", return_value=False),
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            result = CliRunner().invoke(app, ["assemble", "missing.epub"])
+
+        self.assertEqual(result.exit_code, 1, result.output)
         self.assertIn("输入文件不存在", result.output)
+        self.assertNotIn("DEEPSEEK_API_KEY", result.output)
 
     def test_translate_expected_errors_are_printed_without_traceback(self):
-        cfg = Config.from_dict(
-            {"llm": {"provider": "fake", "tiers": {"strong": {"model": "p"}}}}
-        )
+        cfg = Config.from_dict({"llm": {"provider": "fake", "tiers": {"strong": {"model": "p"}}}})
 
         for error in (
             MinerUError("未设置 MINERU_API_KEY"),
             ValueError("不支持的输出格式：xml"),
         ):
             with self.subTest(error=type(error).__name__):
+
                 class FakeOrchestrator:
                     def __init__(self, config):
                         pass
@@ -333,17 +393,13 @@ class TestCliConfig(unittest.TestCase):
                 self.assertIn(str(error), result.output)
                 self.assertNotIn("Traceback", result.output)
 
-    def test_translate_rejects_unknown_output_format_before_loading_config(self):
+    def test_translate_rejects_unknown_output_format_after_api_preflight(self):
+        cfg = Config.from_dict({"llm": {"provider": "fake"}})
         with (
             patch("trans_novel.cli.os.path.isfile", return_value=True),
-            patch(
-                "trans_novel.cli._load_config",
-                side_effect=AssertionError("config should not load"),
-            ),
+            patch("trans_novel.cli._load_config", return_value=cfg),
         ):
-            result = CliRunner().invoke(
-                app, ["translate", "input.txt", "--format", "pdf"]
-            )
+            result = CliRunner().invoke(app, ["translate", "input.txt", "--format", "pdf"])
 
         self.assertEqual(result.exit_code, 2, result.output)
         self.assertIn("不支持的输出格式", result.output)
@@ -363,9 +419,7 @@ class TestCliConfig(unittest.TestCase):
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
             patch("trans_novel.cli.os.path.isfile", return_value=True),
         ):
-            result = CliRunner().invoke(
-                app, ["translate", "input.txt", "--chapter", "9"]
-            )
+            result = CliRunner().invoke(app, ["translate", "input.txt", "--chapter", "9"])
 
         self.assertEqual(result.exit_code, 2, result.output)
         self.assertIn("章节编号 9 不存在", result.output)
@@ -380,6 +434,7 @@ class TestCliConfig(unittest.TestCase):
             cfg = Config.from_dict(
                 {
                     "language": {"source": "ja", "target": "zh"},
+                    "llm": {"provider": "fake"},
                     "paths": {"state_dir": state_dir},
                 }
             )

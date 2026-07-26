@@ -29,14 +29,14 @@ This lets early chapters benefit from knowledge of later events while helping ad
 
 The initial analysis seeds the glossary. As translation proceeds, Wenyi extracts and updates people, places, organizations, terms, techniques, recurring expressions, and forms of address from completed source-and-target pairs. By default, later batches receive only terms that appear in the current chapter, keeping unrelated entries out of the prompt.
 
-The glossary constrains later translation and the final review, but it does not automatically rewrite every previously translated occurrence. Use `tools glossary` to inspect entries and conflicts, then combine review, QA, reports, and manual decisions when necessary.
+The glossary constrains later translation and the final review, but it does not automatically rewrite every previously translated occurrence. Use `glossary list` and `glossary conflicts` to inspect entries, then combine review, QA, reports, and manual decisions when necessary.
 
 ## Quality controls
 
 - **Segment alignment:** the model must return a JSON array with the same number of items as the input. Wenyi retries mismatched batches and falls back to translating one segment at a time.
 - **Polishing:** improves Chinese fluency while preserving meaning and segment count.
 - **Punctuation normalization:** converts punctuation to common Simplified Chinese full-width conventions.
-- **Final review:** starts only after every chapter has been translated, so each chapter derives its relevant term snapshot from the completed glossary rather than the glossary state from an earlier chapter. Chapters are divided into contiguous chunks and checked in parallel against fixed final translation and term snapshots; results are merged back in book order. Severe issues are only retranslated when `autofix_severe` is enabled.
+- **Final review:** starts only after every chapter has been translated, so each chapter derives its relevant term snapshot from the completed glossary rather than the glossary state from an earlier chapter. Chapters are divided into contiguous chunks and checked in parallel against fixed final translation and term snapshots; results are merged back in book order. Every response must end with a completion receipt containing the exact reviewed-segment count and `complete: true`. Syntax-only JSON damage is repaired locally with `json-repair` and accepted only after the receipt and repaired issue schema pass validation, so it adds no model call. A missing or invalid receipt is treated as possible truncation: only that chunk is recursively split and retried. A singleton receives at most `1 + review_output_retries` attempts; persistent failure remains visible and marks the chapter review as failed. Service and transport failures are not multiplied by this output-recovery path. Severe issues are only retranslated when `autofix_severe` is enabled.
 - **Whole-book consistency QA:** checks terminology, references, voice, and punctuation after translation. It reports issues by default without rewriting the text.
 
 Final review is disabled by default. Setting `pipeline.review: true` inserts it
@@ -55,4 +55,4 @@ rechecks chapters whose current translations have already been reviewed;
 
 ## Resumability
 
-Each completed translation batch is persisted immediately. `resume` skips batches whose translations are already complete and fills only missing work. `tools assemble` can regenerate output directly from stored state.
+Each completed translation batch is persisted immediately. Running `translate` again skips completed batches and fills only missing work. `assemble` can regenerate output directly from stored state.

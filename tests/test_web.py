@@ -22,7 +22,7 @@ from openai import (
 from trans_novel.config import Config, TierConfig
 from trans_novel.glossary.store import GlossaryStore, GlossaryTerm
 from trans_novel.ingest.models import Chapter, Document, Segment
-from trans_novel.pipeline.runstore import RunStore, STATUS_DONE
+from trans_novel.pipeline.runstore import STATUS_DONE, RunStore
 from trans_novel.web import (
     TaskManager,
     TierSettings,

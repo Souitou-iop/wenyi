@@ -58,11 +58,18 @@ The release static assets are bundled into the wheel, so ordinary users do not n
 
 The Web UI stores books, task state, and internal artifacts under `~/.wenyi-webui` by default; finished files can be downloaded from the workbench. All data lives in local files and task-scoped state—no database, Redis, or container services required.
 
-By default, Wenyi writes a monolingual Chinese EPUB to the source file's `output/` directory as `book.zh.epub`. A bilingual source-and-translation edition can be enabled when needed. Runtime state, chapter JSON files, the glossary database, and reports are stored under `state/`. To continue an interrupted run:
+By default, Wenyi writes a monolingual Chinese EPUB to the source file's `output/` directory as `book.zh.epub`. A bilingual source-and-translation edition can be enabled when needed. Runtime state, chapter JSON files, the glossary database, and reports are stored under `state/`. To continue an interrupted run, execute the same `translate` command again:
 
 ```bash
-uv run trans-novel resume book.epub
+uv run trans-novel translate book.epub
 uv run trans-novel status book.epub
+```
+
+To inspect the generated style guide and initial glossary before translating the body text, prepare the book first:
+
+```bash
+uv run trans-novel prepare book.epub
+uv run trans-novel translate book.epub
 ```
 
 Final review is disabled by default. Set `pipeline.review: true` to run it
@@ -93,7 +100,7 @@ The bilingual edition places the translation before the source text by default. 
 
 ## Documentation
 
-- [Usage guide](docs/usage.md): installation, Windows setup, input and output, resuming, and utility commands.
+- [Usage guide](docs/usage.md): installation, Windows setup, input/output, resumability, and independent workflow stages.
 - [Configuration](docs/configuration.md): providers, languages, pipeline switches, segmentation, and paths.
 - [Translation pipeline](docs/pipeline.md): whole-book analysis, terminology, context, polishing, review, and resumability.
 - [Contributing](CONTRIBUTING.md): development, testing, and contribution guidelines.
