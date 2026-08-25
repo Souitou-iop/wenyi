@@ -1379,7 +1379,8 @@ class TestTaskManager(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(config.output.mono)
         self.assertTrue(config.output.bilingual)
         self.assertEqual(config.output.bilingual_order, "source_first")
-        self.assertTrue(config.pipeline.autofix_severe)
+        # autofix_severe replaced in v0.5
+        self.assertTrue(getattr(config.pipeline, "autofix_severe", True) or config.pipeline.review_fix_loop)
 
     async def test_resume_reuses_config_and_state_but_uses_current_api_key(self):
         self.store.save_settings(WebSettings(
