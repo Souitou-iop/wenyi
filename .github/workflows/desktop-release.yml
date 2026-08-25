@@ -135,4 +135,6 @@ jobs:
           
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Wenyi Desktop $TAG" --notes "Wenyi AI Book Translation unified cross-platform desktop client (Rust-Tauri v2). Includes Slim (BYOP) and Full (Embedded Python) editions."
           
-          find release-bundles -type f \( -name "*.dmg" -o -name "*.exe" \) -exec gh release upload "$TAG" {} --clobber +
+          find release-bundles -type f \( -name "*.dmg" -o -name "*.exe" \) | while read -r file; do
+            gh release upload "$TAG" "$file" --clobber
+          done
