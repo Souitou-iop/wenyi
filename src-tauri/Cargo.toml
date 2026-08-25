@@ -1,0 +1,40 @@
+[package]
+name = "wenyi-desktop"
+version = "0.1.0"
+description = "Wenyi AI Book Translation Desktop Client"
+authors = ["Wenyi Team"]
+edition = "2021"
+
+[lib]
+name = "wenyi_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-process = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1.8", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6.0"
+which = "7.0"
+log = "0.4"
+env_logger = "0.11"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+quick-xml = { version = "0.37", features = ["serialize"] }
+open = "5.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

@@ -10,6 +10,7 @@ dist/
 state/
 *.db
 .DS_Store
+.codegraph/
 *.zh.epub
 *.zh.txt
 *.txt
@@ -25,3 +26,9 @@ explore/
 *.html
 *.srt
 *.docx
+
+# Tauri & Desktop UI
+src-tauri/target/
+src-tauri/gen/
+desktop/node_modules/
+desktop/dist/
