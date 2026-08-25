@@ -33,9 +33,6 @@
       "dmg",
       "nsis"
     ],
-    "resources": [
-      "../dist/binaries/*"
-    ],
     "windows": {
       "nsis": {
         "installMode": "both"

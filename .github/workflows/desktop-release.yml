@@ -70,7 +70,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/binaries dist/packages
-          rm -rf dist/binaries/*
           npx @tauri-apps/cli build --target ${{ matrix.target }}
           if [ "${{ matrix.os }}" = "macos" ]; then
             cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist/packages/Wenyi_0.1.0_${{ matrix.arch_suffix }}-slim.dmg
@@ -91,7 +90,7 @@ jobs:
       - name: 3. Build Full Desktop Bundle (With Embedded Python Worker)
         shell: bash
         run: |
-          npx @tauri-apps/cli build --target ${{ matrix.target }}
+          npx @tauri-apps/cli build --target ${{ matrix.target }} --config '{"bundle":{"resources":["../dist/binaries/*"]}}'
           if [ "${{ matrix.os }}" = "macos" ]; then
             cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist/packages/Wenyi_0.1.0_${{ matrix.arch_suffix }}-full.dmg
           else
