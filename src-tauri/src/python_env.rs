@@ -8,9 +8,44 @@ use crate::types::PythonEnvInfo;
 pub struct PythonEnvManager;
 
 impl PythonEnvManager {
+    /// 寻找内置的 Sidecar 可执行文件 (wenyi-worker)
+    pub fn find_sidecar_executable(workspace_root: Option<&Path>) -> Option<PathBuf> {
+        let exe_name = if cfg!(windows) { "wenyi-worker.exe" } else { "wenyi-worker" };
+
+        let mut candidate_paths = Vec::new();
+
+        // 1. 本地构建目录
+        if let Some(ws) = workspace_root {
+            candidate_paths.push(ws.join("dist").join("binaries").join(exe_name));
+            candidate_paths.push(ws.join("src-tauri").join("binaries").join(exe_name));
+        }
+
+        // 2. 当前二进制所在目录及其上级 resources
+        if let Ok(cur_exe) = std::env::current_exe() {
+            if let Some(parent) = cur_exe.parent() {
+                candidate_paths.push(parent.join(exe_name));
+                candidate_paths.push(parent.join("resources").join(exe_name));
+                candidate_paths.push(parent.join("../Resources").join(exe_name));
+            }
+        }
+
+        for path in candidate_paths {
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        None
+    }
+
     /// 搜集系统中可能存在的 Python 环境路径列表
     pub fn discover_candidates(custom_path: Option<&str>, workspace_root: Option<&Path>) -> Vec<(String, String)> {
         let mut candidates = Vec::new();
+
+        // 0. 内置 Sidecar 二进制（最高优先级）
+        if let Some(sidecar) = Self::find_sidecar_executable(workspace_root) {
+            candidates.push(("sidecar".to_string(), sidecar.to_string_lossy().to_string()));
+        }
 
         // 1. 用户自定义路径
         if let Some(custom) = custom_path {
@@ -109,6 +144,7 @@ impl PythonEnvManager {
     /// 验证单个可执行文件并探查 trans_novel 模块
     pub async fn validate_executable(kind: &str, path: &str, workspace_root: Option<&Path>) -> PythonEnvInfo {
         let name = match kind {
+            "sidecar" => "内置独立核心引擎 (Sidecar)",
             "custom" => "用户指定 Python",
             "venv" => "项目虚拟环境 (.venv)",
             "uv" => "uv 运行时",
@@ -127,6 +163,38 @@ impl PythonEnvManager {
                 has_wenyi: false,
                 kind: kind.to_string(),
                 status_message: "路径不存在".to_string(),
+            };
+        }
+
+        // 如果是 Sidecar 单二进制程序，直接运行 --help 测试
+        if kind == "sidecar" || path.ends_with("wenyi-worker") || path.ends_with("wenyi-worker.exe") {
+            let mut cmd = Command::new(path);
+            cmd.arg("--help");
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+
+            let res = timeout(Duration::from_secs(5), cmd.output()).await;
+            return match res {
+                Ok(Ok(out)) if out.status.success() => PythonEnvInfo {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name,
+                    path: path.to_string(),
+                    version: "内置 3.12".to_string(),
+                    is_valid: true,
+                    has_wenyi: true,
+                    kind: "sidecar".to_string(),
+                    status_message: "开箱即用，已内置完整 Python 运行时与所有依赖".to_string(),
+                },
+                _ => PythonEnvInfo {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name,
+                    path: path.to_string(),
+                    version: "异常".to_string(),
+                    is_valid: false,
+                    has_wenyi: false,
+                    kind: "sidecar".to_string(),
+                    status_message: "内置引擎校验失败".to_string(),
+                },
             };
         }
 
@@ -213,10 +281,14 @@ impl PythonEnvManager {
             results.push(info);
         }
 
-        // 排序：具备文译模块的排最前，其次有效环境，最后按种类排序
+        // 排序：内置 Sidecar > 具备文译模块的环境 > 有效环境
         results.sort_by(|a, b| {
-            b.has_wenyi
-                .cmp(&a.has_wenyi)
+            let a_is_sidecar = a.kind == "sidecar";
+            let b_is_sidecar = b.kind == "sidecar";
+
+            b_is_sidecar
+                .cmp(&a_is_sidecar)
+                .then_with(|| b.has_wenyi.cmp(&a.has_wenyi))
                 .then_with(|| b.is_valid.cmp(&a.is_valid))
                 .then_with(|| a.kind.cmp(&b.kind))
         });

@@ -93,31 +93,50 @@ impl TaskManager {
             progress_fraction: 0.0,
             completed_units: 0,
             total_units: 0,
-            recent_logs: vec!["启动文译 Worker 进程...".to_string()],
+            recent_logs: vec!["启动文译 Worker 引擎...".to_string()],
             outputs: vec![],
             error_message: None,
             started_at: Some(now_str.clone()),
             updated_at: now_str,
         };
 
-        // 启动 Python 子进程
+        // 启动 Python / Sidecar 子进程
+        let is_sidecar = python_exe.ends_with("wenyi-worker") || python_exe.ends_with("wenyi-worker.exe");
+
         let mut cmd = tokio::process::Command::new(&python_exe);
-        cmd.args([
-            "-m",
-            "trans_novel.app_worker",
-            "--task-id",
-            &task_id,
-            "--input",
-            &payload.input_path,
-            "--output",
-            &output_path,
-            "--state-dir",
-            &state_dir,
-            "--config",
-            &config_path,
-            "--format",
-            &out_format,
-        ]);
+        if is_sidecar {
+            cmd.args([
+                "--task-id",
+                &task_id,
+                "--input",
+                &payload.input_path,
+                "--output",
+                &output_path,
+                "--state-dir",
+                &state_dir,
+                "--config",
+                &config_path,
+                "--format",
+                &out_format,
+            ]);
+        } else {
+            cmd.args([
+                "-m",
+                "trans_novel.app_worker",
+                "--task-id",
+                &task_id,
+                "--input",
+                &payload.input_path,
+                "--output",
+                &output_path,
+                "--state-dir",
+                &state_dir,
+                "--config",
+                &config_path,
+                "--format",
+                &out_format,
+            ]);
+        }
 
         if let Some(ws) = &workspace_root {
             cmd.current_dir(ws);
@@ -128,7 +147,7 @@ impl TaskManager {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        let mut child = cmd.spawn().map_err(|e| format!("启动 Python 进程失败 ({}): {}", python_exe, e))?;
+        let mut child = cmd.spawn().map_err(|e| format!("启动执行进程失败 ({}): {}", python_exe, e))?;
 
         let stdout = child.stdout.take().ok_or_else(|| "无法获取子进程 stdout".to_string())?;
         let stderr = child.stderr.take().ok_or_else(|| "无法获取子进程 stderr".to_string())?;
