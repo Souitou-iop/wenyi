@@ -2,43 +2,43 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, ConfigDict, Field
 
 _DEFAULT_CONFIG_YAML = """\
 # trans-novel 配置（多语言小说 → 中文）
-# 修改后无需改代码；模型 ID、档位、流水线开关都在这里。
+# 修改后无需改代码；模型提供商、流水线和输出开关都在这里。
 
 language:
   source: auto # auto 由模型识别来源语言；也可写死 ja / en / ko / ru / de 等语言代码
   target: zh # 译文语言
 
-# ── LLM：DeepSeek 三档（经 OpenAI SDK 调 https://api.deepseek.com）─────────
-# strong/cheap 开 thinking（求质量的判断类任务）；fast 关 thinking（机械任务，
-# thinking 推理 token 按输出计费，关掉大幅省钱提速）。缺档按 fast→cheap→strong 回退。
+# ── LLM ──────────────────────────────────────────────────────────────────
 llm:
-  provider: deepseek # deepseek | fake（fake 用于离线测试，不发网络请求）
+  # deepseek | openai | openrouter | openai-compatible | ollama | vllm | fake
+  provider: deepseek
   base_url: https://api.deepseek.com
-  api_key_env: DEEPSEEK_API_KEY # 从该环境变量读取 key
-  timeout: 600 # 单次请求超时（秒），思考模式耗时较长
-  max_retries: 4 # 失败重试次数（指数退避）
+  api_key_env: DEEPSEEK_API_KEY
+  timeout: 600
+  max_retries: 4
   tiers:
     strong:
-      model: deepseek-v4-pro # 翻译 / 润色 / 全局分析 / 标题
-      reasoning_effort: high
-      thinking: true
+      model: deepseek-v4-pro
+      options:
+        thinking: true
+        reasoning_effort: high
     cheap:
-      model: deepseek-v4-flash # 审校 / 一致性 QA / 回译比对（判断类，保留思考）
-      reasoning_effort: high
-      thinking: true
+      model: deepseek-v4-flash
+      options:
+        thinking: true
+        reasoning_effort: high
     fast:
-      model: deepseek-v4-flash # 梗概 / 全书概览 / 术语抽取 / 回译（机械任务，免思考）
-      thinking: false
+      model: deepseek-v4-flash
+      options:
+        thinking: true
 
 # ── 切分 ─────────────────────────────────────────────────────────────────
 segment:
@@ -49,16 +49,23 @@ segment:
 
 # ── 流水线开关（质量/成本平衡）───────────────────────────────────────────
 pipeline:
-  review: true # 章末整章审校（廉价档）：漏译/误译/术语/人称检查
-  autofix_severe: false # 审校后自动重译严重项（漏译/误译）；关掉仅上报，不改正文
+  review: false # 默认关闭；开启后在全书翻译完成后自动执行最终审校
   align_retry_limit: 2
   polish: true # 润色（强档）：等于用 pro 把全书再翻一遍，最烧钱；默认开
-  backtranslate_sample: 0 # 回译抽检比例（0 关闭）
-  consistency_qa: false # 全书跨章一致性收尾扫描
   rolling_context_segments: 6 # 注入的前文译文尾段数
   book_understanding: true # 翻译前预扫源文，生成全书概览+逐章梗概注入翻译
   prescan_concurrency: 4 # 预扫逐章梗概的并发线程数（各章独立，1=串行）
-  review_concurrency: 4 # 章末审校分块的并发线程数（只读固定译文/术语，1=串行）
+  annotation_alignment: true # 逐段定位 EPUB 注释链接；关闭时仅译文侧退化为段末标记
+  annotation_alignment_concurrency: 4 # 单段注释数>1时，按条并发定位的最大并发数
+  review_concurrency: 4 # 最终审校连续分块的并发数（只读最终译文/术语快照，1=串行）
+  review_output_retries: 2 # 单段审校输出畸形时额外重试次数（初次+2=最多 3 次）
+  review_agent_loop: true # 初审发现候选后，使用强档按需取证并复核
+  review_agent_tier: strong # 取证复核与全书冲突仲裁使用的模型档位
+  review_agent_max_evidence_rounds: 2 # 最多两轮选择性取证，之后必须裁决
+  review_conflict_arbitration: true # 全部审校块完成后仲裁互相矛盾的一致性建议
+  review_fix_loop: true # 只在内存影子译文上暂改并盲复审，不写回正式正文
+  review_fix_max_rounds: 2 # 最多生成两轮临时替换；完整 Review 轮数另受连续 clean 确认影响
+  review_clean_confirmations: 2 # 连续两轮未发现问题才视为影子译文通过
   glossary_scope: chapter # chapter=本章相关词条；full=全量表
 
 # ── 敬称策略（日语源文本时生效，其它语言通常不会用到）────────────────────
@@ -79,27 +86,31 @@ output:
   mono: true # 产出单语中文版（<书名>.zh.epub）
   bilingual: false # 产出原文与译文对照版（<书名>.zh-bi.epub）
   bilingual_order: target_first # target_first=译文在上；source_first=原文在上
+  bilingual_preserve_source_style: false # true=原文继承原书样式；false=灰色淡化显示
   about_page: true # 在书末附加“关于此翻译”说明页
 """
 
 
 class TierConfig(BaseModel):
-    model: str
-    reasoning_effort: str = "high"
-    thinking: bool = True
+    """跨 provider 通用的档位覆盖；专属参数由 provider 解析 options。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str | None = None
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+ReasoningStyle = Literal["none", "deepseek", "openai", "openrouter"]
 
 
 class LLMConfig(BaseModel):
     provider: str = "deepseek"
-    base_url: str = "https://api.deepseek.com"
-    api_key_env: str = "DEEPSEEK_API_KEY"
+    base_url: str | None = None
+    api_key_env: str | None = None
+    reasoning_style: ReasoningStyle = "none"
     timeout: int = 600
     max_retries: int = 4
     tiers: dict[str, TierConfig] = Field(default_factory=dict)
-
-    @property
-    def api_key(self) -> str | None:
-        return os.environ.get(self.api_key_env)
 
 
 class SegmentConfig(BaseModel):
@@ -108,19 +119,35 @@ class SegmentConfig(BaseModel):
 
 
 class PipelineConfig(BaseModel):
-    review: bool = True
-    autofix_severe: bool = False     # 章末审校后自动重译严重项（漏译/误译）；关闭则仅上报留人工
-    align_retry_limit: int = 2       # 批次翻译段数不符时的整批重试次数，超限后逐段兜底
-    polish: bool = True              # 默认开：润色=用强档把全书再翻一遍，可在配置中关闭以节省成本
-    backtranslate_sample: float = 0.0
-    consistency_qa: bool = False
+    review: bool = False
+    align_retry_limit: int = 2  # 批次翻译段数不符时的整批重试次数，超限后逐段兜底
+    polish: bool = True  # 默认开：润色=用强档把全书再翻一遍，可在配置中关闭以节省成本
     rolling_context_segments: int = 6
-    # 翻译前预扫源文，生成全书概览+逐章梗概注入翻译 prompt（让译者对全书有理解）。
-    # fast 档（免思考），且全局概览为恒定前缀可命中缓存复用；关掉可省去预扫成本。
+    # 翻译前预扫源文，生成全书概览+逐章梗概注入翻译 prompt；关掉可省去预扫成本。
     book_understanding: bool = True
-    prescan_concurrency: int = 4     # 预扫逐章梗概的并发线程数（各章独立，1=串行）
-    review_concurrency: int = 4      # 章末审校分块并发数（结果按原块序合并，1=串行）
-    glossary_scope: str = "chapter"  # chapter=只注入本章出现的词条+锁定人物（省 token）；full=全量表
+    prescan_concurrency: int = 4  # 预扫逐章梗概的并发线程数（各章独立，1=串行）
+    annotation_alignment: bool = True  # 每个含注释逻辑段定稿后串行定位链接
+    # 单个逻辑段内注释数 >1 时，改为逐条并发请求（每请求只定位一条注释），
+    # 避免单次响应要求模型同时摆对多条标记而整体回退到段末；此为并发上限。
+    annotation_alignment_concurrency: int = 4
+    review_concurrency: int = 4  # 最终审校连续分块并发数（结果按原块序合并，1=串行）
+    review_output_retries: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+    )  # 单段畸形输出的额外重试次数
+    review_agent_loop: bool = True  # 初审发现候选后，启动有界取证 Agent Loop
+    review_agent_tier: Literal["strong", "cheap", "fast"] = "strong"
+    review_agent_max_evidence_rounds: int = Field(
+        default=2,
+        ge=0,
+        le=2,
+    )
+    review_conflict_arbitration: bool = True  # 全部块完成后仲裁互相矛盾的一致性建议
+    review_fix_loop: bool = True  # 仅在内存影子译文上生成临时替换并盲复审
+    review_fix_max_rounds: int = Field(default=2, ge=0, le=4)
+    review_clean_confirmations: int = Field(default=2, ge=1, le=2)
+    glossary_scope: str = "chapter"  # chapter=只注入本章出现的词条（省 token）；full=全量表
 
 
 class OutputConfig(BaseModel):
@@ -129,11 +156,12 @@ class OutputConfig(BaseModel):
     bilingual_order: str = (
         "target_first"  # target_first=译文在上原文在下(默认); source_first=原文在上
     )
+    bilingual_preserve_source_style: bool = False
     about_page: bool = True  # 在书末附加项目说明页
 
 
 class Config(BaseModel):
-    source_lang: str = "auto"        # auto | ja | en | …（auto 时由模型检测）
+    source_lang: str = "auto"  # auto | ja | en | …（auto 时由模型检测）
     target_lang: str = "zh"
     llm: LLMConfig = Field(default_factory=LLMConfig)
     segment: SegmentConfig = Field(default_factory=SegmentConfig)
@@ -156,14 +184,15 @@ class Config(BaseModel):
             return False
 
     @classmethod
-    def load(cls, path: str = "config.yaml") -> "Config":
-        cls.create_default_file(path)
+    def load(cls, path: str = "config.yaml") -> Config:
+        """从 YAML 文件加载配置，并应用缺失字段的类型化默认值。"""
         with open(path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         return cls.from_dict(raw)
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> "Config":
+    def from_dict(cls, raw: dict[str, Any]) -> Config:
+        """把 YAML 对应的嵌套字典转换为运行时配置模型。"""
         lang = raw.get("language", {})
         llm_raw = raw.get("llm", {})
         tiers = {
@@ -172,8 +201,9 @@ class Config(BaseModel):
         }
         llm = LLMConfig(
             provider=llm_raw.get("provider", "deepseek"),
-            base_url=llm_raw.get("base_url", "https://api.deepseek.com"),
-            api_key_env=llm_raw.get("api_key_env", "DEEPSEEK_API_KEY"),
+            base_url=llm_raw.get("base_url"),
+            api_key_env=llm_raw.get("api_key_env"),
+            reasoning_style=llm_raw.get("reasoning_style", "none"),
             timeout=llm_raw.get("timeout", 600),
             max_retries=llm_raw.get("max_retries", 4),
             tiers=tiers,

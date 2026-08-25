@@ -1,6 +1,7 @@
 """文档加载分发 + 翻译批次切分。
 
-- load_document：按扩展名分发到 EPUB / 纯文本读取器；可选把超长 Segment 按句拆分。
+- load_document：按扩展名分发到 EPUB / FB2 / TXT / Markdown / HTML / PDF
+  读取器；可选把超长 Segment 按句拆分。
 - batch_segments：把一章的 Segment 按字符预算（≈token）打包成批次，
   一个批次整体发给翻译模型；模型须返回等长译文数组以做对齐校验。
 - split_long_segments：单个 Segment 超过 max_chars 时按句切成多段（续段标 cont=True），
@@ -11,10 +12,13 @@ from __future__ import annotations
 
 import os
 import re
+from copy import deepcopy
 
 from .epub_reader import read_epub
 from .fb2_reader import read_fb2
+from .html_reader import read_html
 from .models import KIND_TEXT, Chapter, Document, Segment
+from .pdf_reader import read_pdf
 from .text_reader import read_text
 
 # 常见句末标点，用于超长段的按句拆分
@@ -47,7 +51,7 @@ def _split_text(text: str, max_chars: int) -> list[str]:
     for p in _SENT_SPLIT.split(text):
         if not p:
             continue
-        if len(p) > max_chars:                      # 单句本身超长 → 兜底拆
+        if len(p) > max_chars:  # 单句本身超长 → 兜底拆
             if cur:
                 chunks.append(cur)
                 cur = ""
@@ -77,26 +81,69 @@ def split_long_segments(chapters: list[Chapter], max_chars: int) -> None:
                 continue
             for k, piece in enumerate(_split_text(s.source, max_chars)):
                 if k == 0:
-                    new_segs.append(Segment(index=idx, source=piece, kind=s.kind,
-                                            anchor=s.anchor, cont=False))
+                    new_segs.append(
+                        Segment(
+                            index=idx,
+                            source=piece,
+                            kind=s.kind,
+                            anchor=s.anchor,
+                            resource_href=s.resource_href,
+                            cont=False,
+                            meta=deepcopy(s.meta),
+                        )
+                    )
                 else:  # 续段：并回首段，无独立 anchor
-                    new_segs.append(Segment(index=idx, source=piece, kind=KIND_TEXT,
-                                            anchor=None, cont=True))
+                    new_segs.append(
+                        Segment(
+                            index=idx,
+                            source=piece,
+                            kind=KIND_TEXT,
+                            anchor=None,
+                            resource_href=s.resource_href,
+                            cont=True,
+                        )
+                    )
                 idx += 1
         ch.segments = new_segs
 
 
-def load_document(path: str, source_lang: str, target_lang: str,
-                  split_segments: int = 0) -> Document:
+def load_document(
+    path: str,
+    source_lang: str,
+    target_lang: str,
+    split_segments: int = 0,
+    *,
+    cache_dir: str | None = None,
+    source_hash: str | None = None,
+) -> Document:
+    """按文件扩展名读取文档，并按需拆分超过上限的翻译段。"""
     ext = os.path.splitext(path)[1].lower()
     if ext == ".epub":
         doc = read_epub(path, source_lang, target_lang)
-    elif ext in (".txt", ".md", ".markdown", ".text"):
+    elif ext in (".md", ".markdown", ".txt", ".text"):
         doc = read_text(path, source_lang, target_lang)
     elif ext == ".fb2":
         doc = read_fb2(path, source_lang, target_lang)
+    elif ext in (".html", ".htm", ".xhtml"):
+        doc = read_html(path, source_lang, target_lang)
+    elif ext == ".pdf":
+        if cache_dir is None:
+            raise ValueError("PDF 读取需要指定运行状态缓存目录")
+        doc = read_pdf(
+            path,
+            source_lang,
+            target_lang,
+            cache_dir=cache_dir,
+            source_hash=source_hash,
+        )
+    elif ext == ".docx":
+        from .docx_reader import read_docx
+
+        doc = read_docx(path, source_lang, target_lang)
     else:
-        raise ValueError(f"不支持的格式：{ext}（支持 .epub / .txt / .md / .fb2）")
+        raise ValueError(
+            f"不支持的格式：{ext}（支持 .epub / .txt / .md / .fb2 / .html / .xhtml / .pdf / .docx）"
+        )
 
     if split_segments and split_segments > 0:
         split_long_segments(doc.chapters, split_segments)
