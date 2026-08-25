@@ -77,5 +77,43 @@ class TestRunWorker(unittest.TestCase):
             self.assertEqual(events[-1]["outputs"], [output])
 
 
+    def test_srt_worker_delegates_to_translate_srt(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = os.path.join(root, "movie.srt")
+            config = os.path.join(root, "config.yaml")
+            output = os.path.join(root, "output", "movie.zh.srt")
+            state = os.path.join(root, "state", "movie-id")
+            with open(source, "w", encoding="utf-8") as f:
+                f.write("1\n00:00:01,000 --> 00:00:04,000\nHello")
+            with open(config, "w", encoding="utf-8") as f:
+                f.write("llm: {}\noutput: {mono: true, bilingual: false}")
+            stream = StringIO()
+            request = WorkerRequest(
+                task_id="task-srt",
+                input_path=source,
+                output_path=output,
+                state_dir=state,
+                config_path=config,
+            )
+
+            def fake_translate_srt(src, cfg, **kwargs):
+                kwargs["progress"](1, 1, "完成")
+                return {"outputs": [output], "cue_count": 1, "translated": 1, "run_dir": state}
+
+            with (
+                patch("trans_novel.app_worker.Config.load") as load,
+                patch("trans_novel.srt.translate.translate_srt", fake_translate_srt),
+            ):
+                cfg = load.return_value
+                cfg.state_dir = "old"
+                cfg.output.mono = True
+                cfg.output.bilingual = False
+                code = run_worker(request, stream=stream)
+
+            self.assertEqual(code, 0)
+            events = [json.loads(line) for line in stream.getvalue().splitlines()]
+            self.assertEqual(events[-1]["type"], "completed")
+            self.assertEqual(events[-1]["outputs"], [output])
+
 if __name__ == "__main__":
     unittest.main()

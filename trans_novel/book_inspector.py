@@ -1,4 +1,4 @@
-"""无需第三方依赖的图书元数据检查器，供本机客户端导入时使用。"""
+"""无需第三方依赖的图书元数据检查器，供本机客户端与 Web UI 导入时使用。"""
 
 from __future__ import annotations
 
@@ -31,10 +31,20 @@ def _attribute(element: ET.Element, name: str) -> str:
     return next((value for key, value in element.attrib.items() if _local(key) == name), "")
 
 
-def _empty_metadata(source: Path, stat_size: int) -> dict:
-    return {"title": source.stem, "authors": [], "language": "", "publisher": "",
-            "publicationDate": "", "identifier": "", "description": "", "subjects": [],
-            "chapterCount": 0, "fileSize": stat_size, "coverPath": None}
+def _empty_metadata(source: Path, stat_size: int, *, chapter_count: int = 0) -> dict:
+    return {
+        "title": source.stem,
+        "authors": [],
+        "language": "",
+        "publisher": "",
+        "publicationDate": "",
+        "identifier": "",
+        "description": "",
+        "subjects": [],
+        "chapterCount": chapter_count,
+        "fileSize": stat_size,
+        "coverPath": None,
+    }
 
 
 def _opf_path(zf: zipfile.ZipFile) -> str:
@@ -48,10 +58,90 @@ def _opf_path(zf: zipfile.ZipFile) -> str:
 def inspect_book(path: str, cover_directory: str, book_id: str) -> dict:
     source = Path(path)
     stat = source.stat()
-    if source.suffix.lower() not in {".epub", ".fb2"}:
+    ext = source.suffix.lower()
+
+    if ext == ".docx":
+        try:
+            with zipfile.ZipFile(source) as zf:
+                title = source.stem
+                authors: list[str] = []
+                language = ""
+                description = ""
+                subjects: list[str] = []
+                if "docProps/core.xml" in zf.namelist():
+                    try:
+                        core_root = ET.fromstring(zf.read("docProps/core.xml"))
+                        title = _first(core_root, "title") or title
+                        creator = _first(core_root, "creator")
+                        if creator:
+                            authors.append(creator)
+                        language = _first(core_root, "language")
+                        description = _first(core_root, "description")
+                        subj = _first(core_root, "subject")
+                        if subj:
+                            subjects.append(subj)
+                    except (ET.ParseError, KeyError):
+                        pass
+
+                chapter_count = 1
+                if "word/document.xml" in zf.namelist():
+                    try:
+                        doc_root = ET.fromstring(zf.read("word/document.xml"))
+                        # 统计 Heading 1 / 标题数量作为章节估算
+                        headings = sum(
+                            1
+                            for p_style in doc_root.iter()
+                            if _local(p_style.tag) == "pStyle"
+                            and "heading" in _attribute(p_style, "val").lower()
+                        )
+                        if headings > 0:
+                            chapter_count = headings
+                    except (ET.ParseError, KeyError):
+                        pass
+
+                cover_path = None
+                # 尝试提取缩略图或第一张图片作为封面
+                thumb_candidates = [
+                    name for name in zf.namelist()
+                    if name.startswith("docProps/thumbnail") or (name.startswith("word/media/") and name.lower().endswith((".png", ".jpg", ".jpeg")))
+                ]
+                if thumb_candidates:
+                    chosen = thumb_candidates[0]
+                    suffix = Path(chosen).suffix or ".jpg"
+                    destination = Path(cover_directory) / f"{book_id}{suffix.lower()}"
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(chosen) as src, destination.open("wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    cover_path = str(destination)
+
+                return {
+                    "title": title,
+                    "authors": authors,
+                    "language": language,
+                    "publisher": "",
+                    "publicationDate": "",
+                    "identifier": "",
+                    "description": description,
+                    "subjects": subjects,
+                    "chapterCount": chapter_count,
+                    "fileSize": stat.st_size,
+                    "coverPath": cover_path,
+                }
+        except (zipfile.BadZipFile, OSError):
+            return _empty_metadata(source, stat.st_size)
+
+    if ext == ".srt":
+        try:
+            text = source.read_text(encoding="utf-8", errors="ignore")
+            cue_count = text.count("-->")
+            return _empty_metadata(source, stat.st_size, chapter_count=max(1, cue_count))
+        except OSError:
+            return _empty_metadata(source, stat.st_size)
+
+    if ext in {".txt", ".md", ".markdown", ".pdf"}:
         return _empty_metadata(source, stat.st_size)
 
-    if source.suffix.lower() == ".fb2":
+    if ext == ".fb2":
         try:
             root = ET.parse(source).getroot()
         except (ET.ParseError, OSError):
@@ -75,8 +165,8 @@ def inspect_book(path: str, cover_directory: str, book_id: str) -> dict:
             if binary is not None and binary.text:
                 try:
                     media = binary.attrib.get("content-type", "image/jpeg")
-                    ext = "." + media.split("/")[-1].split(";")[0].replace("jpeg", "jpg")
-                    destination = Path(cover_directory) / f"{book_id}{ext}"
+                    ext_name = "." + media.split("/")[-1].split(";")[0].replace("jpeg", "jpg")
+                    destination = Path(cover_directory) / f"{book_id}{ext_name}"
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(base64.b64decode("".join(binary.text.split())))
                     cover_path = str(destination)

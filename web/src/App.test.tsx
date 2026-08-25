@@ -43,6 +43,7 @@ const settings: Settings = {
   review: true,
   autofix_severe: true,
   book_understanding: true,
+  annotation_alignment: true,
   consistency_qa: true,
   about_page: true,
 };

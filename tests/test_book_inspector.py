@@ -70,6 +70,25 @@ class TestBookInspector(unittest.TestCase):
             self.assertEqual(result["fileSize"], 5)
             self.assertIsNone(result["coverPath"])
 
+    def test_extracts_docx_metadata(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "doc.docx"
+            with zipfile.ZipFile(path, "w") as zf:
+                zf.writestr("docProps/core.xml", """<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Doc Title</dc:title><dc:creator>Bob</dc:creator></cp:coreProperties>""")
+                zf.writestr("word/document.xml", """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Heading</w:t></w:r></w:p></w:body></w:document>""")
+            result = inspect_book(str(path), str(Path(d) / "covers"), "docx-id")
+            self.assertEqual(result["title"], "Doc Title")
+            self.assertEqual(result["authors"], ["Bob"])
+            self.assertEqual(result["chapterCount"], 1)
+
+    def test_extracts_srt_cues_count(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "movie.srt"
+            path.write_text("1\n00:00:01,000 --> 00:00:04,000\nHello\n\n2\n00:00:05,000 --> 00:00:08,000\nWorld", encoding="utf-8")
+            result = inspect_book(str(path), str(Path(d) / "covers"), "srt-id")
+            self.assertEqual(result["title"], "movie")
+            self.assertEqual(result["chapterCount"], 2)
+
     def test_damaged_book_metadata_falls_back_without_failing_import(self):
         with tempfile.TemporaryDirectory() as d:
             for suffix in (".epub", ".fb2"):

@@ -156,6 +156,7 @@ export type Provider =
   | "deepseek"
   | "openai"
   | "openrouter"
+  | "gemini"
   | "openai-compatible"
   | "ollama"
   | "vllm";
@@ -166,7 +167,9 @@ export type Settings = {
   provider: Provider;
   base_url: string;
   api_key: string;
+  mineru_api_key?: string;
   has_api_key?: boolean;
+  has_mineru_api_key?: boolean;
   reasoning_style: ReasoningStyle;
   glow_mode: "none" | "symmetric" | "corners";
   source_lang: string;
@@ -181,9 +184,10 @@ export type Settings = {
   bilingual_order: "target_first" | "source_first";
   polish: boolean;
   review: boolean;
-  autofix_severe: boolean;
+  autofix_severe?: boolean;
   book_understanding: boolean;
-  consistency_qa: boolean;
+  annotation_alignment: boolean;
+  consistency_qa?: boolean;
   about_page: boolean;
 };
 

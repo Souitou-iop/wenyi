@@ -55,10 +55,56 @@ const providers: { id: Provider; label: string }[] = [
   { id: "deepseek", label: "DeepSeek" },
   { id: "openai", label: "OpenAI" },
   { id: "openrouter", label: "OpenRouter" },
+  { id: "gemini", label: "Google Gemini" },
   { id: "openai-compatible", label: "OpenAI 兼容端点" },
   { id: "ollama", label: "Ollama" },
   { id: "vllm", label: "vLLM" },
 ];
+
+const providerDefaults: Record<Provider, { base_url: string; strong: string; cheap: string; fast: string }> = {
+  deepseek: {
+    base_url: "https://api.deepseek.com",
+    strong: "deepseek-v4-pro",
+    cheap: "deepseek-v4-flash",
+    fast: "deepseek-v4-flash",
+  },
+  openai: {
+    base_url: "https://api.openai.com/v1",
+    strong: "gpt-5.6",
+    cheap: "gpt-5.6-mini",
+    fast: "gpt-5.6-mini",
+  },
+  openrouter: {
+    base_url: "https://openrouter.ai/api/v1",
+    strong: "deepseek/deepseek-chat",
+    cheap: "deepseek/deepseek-chat",
+    fast: "deepseek/deepseek-chat",
+  },
+  gemini: {
+    base_url: "https://generativelanguage.googleapis.com",
+    strong: "gemini-2.5-pro",
+    cheap: "gemini-2.5-flash",
+    fast: "gemini-2.5-flash",
+  },
+  "openai-compatible": {
+    base_url: "https://api.openai.com/v1",
+    strong: "gpt-4o",
+    cheap: "gpt-4o-mini",
+    fast: "gpt-4o-mini",
+  },
+  ollama: {
+    base_url: "http://127.0.0.1:11434/v1",
+    strong: "qwen2.5:72b",
+    cheap: "qwen2.5:14b",
+    fast: "qwen2.5:7b",
+  },
+  vllm: {
+    base_url: "http://127.0.0.1:8000/v1",
+    strong: "qwen2.5-72b-instruct",
+    cheap: "qwen2.5-14b-instruct",
+    fast: "qwen2.5-7b-instruct",
+  },
+};
 
 function statusLabel(status: Task["status"]) {
   return {
@@ -682,7 +728,7 @@ function LibraryRail({
             <input
               hidden
               type="file"
-              accept=".epub,.fb2,.txt"
+              accept=".epub,.docx,.fb2,.txt,.srt,.pdf,.md,.markdown"
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) onUpload(file);
@@ -819,11 +865,11 @@ function EmptyWorkspace({ onUpload, busy }: { onUpload: (file: File) => void; bu
         }}
       >
         <UploadSimple />
-        <span>{busy ? "正在导入" : "选择或拖入图书"}</span>
+        <span>{busy ? "正在导入" : "选择或拖入图书或字幕（EPUB / DOCX / FB2 / TXT / SRT / PDF / MD）"}</span>
         <input
           hidden
           type="file"
-          accept=".epub,.fb2,.txt"
+          accept=".epub,.docx,.fb2,.txt,.srt,.pdf,.md,.markdown"
           onChange={(event) => {
             const file = event.target.files?.[0];
             if (file) onUpload(file);
@@ -880,9 +926,14 @@ function SettingsSheet({
   };
 
   const updateProvider = (provider: Provider) => {
+    const def = providerDefaults[provider];
     setDraft((current) => ({
       ...current,
       provider,
+      base_url: def ? def.base_url : current.base_url,
+      strong: def ? { ...current.strong, model: def.strong } : current.strong,
+      cheap: def ? { ...current.cheap, model: def.cheap } : current.cheap,
+      fast: def ? { ...current.fast, model: def.fast } : current.fast,
       api_key: "",
       has_api_key: provider === settings.provider ? settings.has_api_key : false,
     }));
@@ -1087,6 +1138,15 @@ function SettingsSheet({
                       onChange={(event) => update("max_retries", Number(event.target.value))}
                     />
                   </label>
+                  <label>
+                    <span>MinerU API Key（仅用于 PDF 解析，可选）</span>
+                    <input
+                      type="password"
+                      value={draft.mineru_api_key || ""}
+                      placeholder={draft.has_mineru_api_key ? "已安全保存，留空保持不变" : "留空则无需 PDF 解析"}
+                      onChange={(event) => update("mineru_api_key", event.target.value)}
+                    />
+                  </label>
                 </div>
               </details>
             </>
@@ -1172,27 +1232,17 @@ function SettingsSheet({
                 </div>
                 <div className="toggle-grid">
                   {([
-                    ["polish", "润色"],
-                    ["review", "审校"],
-                    ["autofix_severe", "自动修复严重问题"],
-                    ["book_understanding", "全书理解"],
-                    ["consistency_qa", "一致性检查"],
+                    ["polish", "润色 (强档全书润色)"],
+                    ["review", "智能审校 (有界取证 Agent Loop)"],
+                    ["book_understanding", "全书理解预扫"],
+                    ["annotation_alignment", "注释精确定位"],
                   ] as const).map(([key, label]) => (
-                    <label
-                      className={`toggle-row ${key === "autofix_severe" && !draft.review ? "disabled" : ""}`}
-                      key={key}
-                    >
+                    <label className="toggle-row" key={key}>
                       <span>{label}</span>
                       <input
                         type="checkbox"
                         checked={draft[key]}
-                        disabled={key === "autofix_severe" && !draft.review}
-                        onChange={(event) => {
-                          update(key, event.target.checked);
-                          if (key === "review" && !event.target.checked) {
-                            update("autofix_severe", false);
-                          }
-                        }}
+                        onChange={(event) => update(key, event.target.checked)}
                       />
                     </label>
                   ))}

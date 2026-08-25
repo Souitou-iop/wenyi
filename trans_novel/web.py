@@ -40,7 +40,7 @@ from .glossary.store import GlossaryStore, GlossaryTerm
 from .ingest.segmenter import load_document
 from .pipeline.runstore import STATUS_DONE, RunStore
 
-SUPPORTED_BOOK_TYPES = {".epub", ".fb2", ".txt"}
+SUPPORTED_BOOK_TYPES = {".epub", ".docx", ".fb2", ".txt", ".srt", ".pdf", ".md", ".markdown"}
 MAX_UPLOAD_BYTES = 256 * 1024 * 1024
 KEY_OPTIONAL_PROVIDERS = {"openai-compatible", "ollama", "vllm"}
 METADATA_DEFAULTS: dict[str, Any] = {
@@ -104,10 +104,11 @@ def _tier_config(tier: TierSettings) -> dict[str, Any]:
 
 class WebSettings(BaseModel):
     provider: Literal[
-        "deepseek", "openai", "openrouter", "openai-compatible", "ollama", "vllm"
+        "deepseek", "openai", "openrouter", "openai-compatible", "ollama", "vllm", "gemini"
     ] = "deepseek"
     base_url: str = "https://api.deepseek.com"
     api_key: str = ""
+    mineru_api_key: str = ""
     reasoning_style: Literal["none", "deepseek", "openai", "openrouter"] = "none"
     glow_mode: Literal["none", "symmetric", "corners"] = "none"
     source_lang: str = "auto"
@@ -124,6 +125,7 @@ class WebSettings(BaseModel):
     review: bool = True
     autofix_severe: bool = False
     book_understanding: bool = True
+    annotation_alignment: bool = True
     consistency_qa: bool = False
     about_page: bool = True
 
@@ -164,7 +166,7 @@ class ConnectionModels(BaseModel):
 
 class TestConnectionRequest(BaseModel):
     provider: Literal[
-        "deepseek", "openai", "openrouter", "openai-compatible", "ollama", "vllm"
+        "deepseek", "openai", "openrouter", "openai-compatible", "ollama", "vllm", "gemini"
     ] = "deepseek"
     base_url: str
     api_key: str = ""
@@ -420,9 +422,8 @@ class TaskManager:
             "pipeline": {
                 "polish": settings.polish,
                 "review": settings.review,
-                "autofix_severe": settings.autofix_severe,
                 "book_understanding": settings.book_understanding,
-                "consistency_qa": settings.consistency_qa,
+                "annotation_alignment": settings.annotation_alignment,
             },
             "output": {
                 "mono": settings.mono,
@@ -538,6 +539,16 @@ class TaskManager:
             self._write_config(config_path, settings, state_dir)
         env = os.environ.copy()
         env["WENYI_WEB_API_KEY"] = settings.api_key
+        if settings.provider == "gemini":
+            env["GEMINI_API_KEY"] = settings.api_key
+        elif settings.provider == "deepseek":
+            env["DEEPSEEK_API_KEY"] = settings.api_key
+        elif settings.provider == "openai":
+            env["OPENAI_API_KEY"] = settings.api_key
+        elif settings.provider == "openrouter":
+            env["OPENROUTER_API_KEY"] = settings.api_key
+        if settings.mineru_api_key:
+            env["MINERU_API_KEY"] = settings.mineru_api_key
         process = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "trans_novel.app_worker",
             "--task-id", task["id"],
@@ -784,7 +795,9 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
     def get_settings():
         settings = store.settings().model_dump()
         settings["api_key"] = ""
+        settings["mineru_api_key"] = ""
         settings["has_api_key"] = bool(store.settings().api_key)
+        settings["has_mineru_api_key"] = bool(store.settings().mineru_api_key)
         return settings
 
     @app.put("/api/settings")
@@ -792,8 +805,14 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
         saved = store.settings()
         if not settings.api_key and settings.provider == saved.provider:
             settings.api_key = saved.api_key
+        if not settings.mineru_api_key:
+            settings.mineru_api_key = saved.mineru_api_key
         store.save_settings(settings)
-        return {"saved": True, "has_api_key": bool(settings.api_key)}
+        return {
+            "saved": True,
+            "has_api_key": bool(settings.api_key),
+            "has_mineru_api_key": bool(settings.mineru_api_key),
+        }
 
     @app.post("/api/settings/test-connection")
     def test_connection(request: TestConnectionRequest):
@@ -814,6 +833,20 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
         ]))
         if any(not model for model in requested_models):
             raise HTTPException(400, "模型名称不能为空")
+        if request.provider == "gemini":
+            try:
+                from google import genai
+                g_client = genai.Client(api_key=api_key)
+                g_client.models.get(model=request.models.fast)
+                return {
+                    "ok": True,
+                    "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                    "tested_models": requested_models,
+                    "mode": "models",
+                }
+            except Exception as exc:
+                raise HTTPException(400, f"Gemini 连接失败: {exc}")
+
         mode = "models"
         try:
             client = OpenAI(
@@ -875,7 +908,7 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
     async def upload_book(file: UploadFile = File(...)):
         suffix = Path(file.filename or "").suffix.lower()
         if suffix not in SUPPORTED_BOOK_TYPES:
-            raise HTTPException(400, "仅支持 EPUB、FB2 和 TXT")
+            raise HTTPException(400, "仅支持 EPUB、DOCX、FB2、TXT、SRT、PDF 或 Markdown")
         book_id = str(uuid.uuid4())
         destination = store.books_dir / f"{book_id}{suffix}"
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -888,13 +921,22 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
                         raise HTTPException(413, "图书文件不能超过 256 MB")
                     target.write(chunk)
             metadata = inspect_book(str(destination), str(store.covers_dir), book_id)
-            document = load_document(str(destination), "auto", "zh")
-            if not any(
-                segment.source.strip()
-                for chapter in document.chapters
-                for segment in chapter.segments
-            ):
-                raise HTTPException(400, "图书中没有可翻译正文")
+            if suffix == ".srt":
+                from trans_novel.ingest.srt_reader import parse_srt
+                cues = parse_srt(str(destination))
+                if not cues:
+                    raise HTTPException(400, "字幕文件中没有可翻译内容")
+            elif suffix == ".pdf":
+                if destination.stat().st_size == 0:
+                    raise HTTPException(400, "PDF 文件为空")
+            else:
+                document = load_document(str(destination), "auto", "zh")
+                if not any(
+                    segment.source.strip()
+                    for chapter in document.chapters
+                    for segment in chapter.segments
+                ):
+                    raise HTTPException(400, "图书中没有可翻译正文")
         except Exception as exc:
             destination.unlink(missing_ok=True)
             for cover in store.covers_dir.glob(f"{book_id}.*"):
@@ -902,7 +944,7 @@ def create_app(data_dir: Path | None = None, web_dir: Path | None = None) -> Fas
             if isinstance(exc, HTTPException):
                 raise
             raise HTTPException(400, "无法读取图书") from exc
-        if suffix == ".txt":
+        if suffix in {".txt", ".srt", ".md", ".markdown"}:
             metadata["title"] = Path(file.filename or destination.name).stem
         book = {
             "id": book_id,

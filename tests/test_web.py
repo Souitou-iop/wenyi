@@ -137,6 +137,38 @@ class TestWebAPI(unittest.TestCase):
         self.client.app.state.manager.save(task)
         return task, workspace
 
+    def test_settings_save_gemini_and_mineru_api_key(self):
+        settings = WebSettings(
+            provider="gemini",
+            base_url="https://generativelanguage.googleapis.com",
+            api_key="gemini-secret",
+            mineru_api_key="mineru-secret",
+            annotation_alignment=True,
+        )
+        response = self.client.put("/api/settings", json=settings.model_dump())
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["has_api_key"])
+        self.assertTrue(response.json()["has_mineru_api_key"])
+
+        loaded = self.client.get("/api/settings").json()
+        self.assertEqual(loaded["provider"], "gemini")
+        self.assertEqual(loaded["api_key"], "")
+        self.assertEqual(loaded["mineru_api_key"], "")
+        self.assertTrue(loaded["has_api_key"])
+        self.assertTrue(loaded["has_mineru_api_key"])
+        self.assertTrue(loaded["annotation_alignment"])
+
+    def test_upload_srt_file(self):
+        content = b"1\n00:00:01,000 --> 00:00:04,000\nHello\n\n2\n00:00:05,000 --> 00:00:08,000\nWorld\n"
+        response = self.client.post(
+            "/api/books",
+            files={"file": ("movie.srt", content, "text/plain")},
+        )
+        self.assertEqual(response.status_code, 200)
+        book = response.json()
+        self.assertEqual(book["title"], "movie")
+        self.assertEqual(book["metadata"]["chapterCount"], 2)
+
     def test_health_and_settings_hide_saved_api_key(self):
         self.assertEqual(self.client.get("/api/health").json(), {"status": "ok"})
         settings = WebSettings(
@@ -622,7 +654,7 @@ class TestWebAPI(unittest.TestCase):
     def test_rejects_unsupported_book(self):
         response = self.client.post(
             "/api/books",
-            files={"file": ("notes.pdf", b"%PDF", "application/pdf")},
+            files={"file": ("notes.mobi", b"MOBI-DATA", "application/octet-stream")},
         )
         self.assertEqual(response.status_code, 400)
 

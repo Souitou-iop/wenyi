@@ -134,7 +134,7 @@ class Orchestrator:
         *,
         only_chapter: int | None,
         progress: ProgressFn | None,
-        phase: PhaseFn | None,
+        phase: PhaseFn | None = None,
     ) -> RunStore:
         """恢复语言、校验章节编号、生成全书概览，再委托正文翻译。"""
         manifest = self._preparation.activate(store)
@@ -353,8 +353,8 @@ class Orchestrator:
         steps: set[str],
         run_steps_input: list[str],
         progress: ProgressFn | None,
-        phase: PhaseFn | None,
-        out_format: str,
+        phase: PhaseFn | None = None,
+        out_format: str = "epub",
         out_path: str | None,
         pdf_engine: str,
     ) -> dict[str, Any]:

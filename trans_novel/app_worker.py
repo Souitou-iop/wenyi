@@ -73,6 +73,29 @@ def run_worker(request: WorkerRequest, *, stream: TextIO = sys.stdout) -> int:
                 label=label,
             )
 
+        if request.input_path.lower().endswith(".srt"):
+            on_phase("translating", "字幕翻译")
+            from .srt.translate import translate_srt
+
+            result = translate_srt(
+                request.input_path,
+                config,
+                out=request.output_path,
+                mono=config.output.mono,
+                bilingual=config.output.bilingual,
+                progress=on_progress,
+            )
+            writer.emit(
+                "completed",
+                outputs=result.get("outputs") or [],
+                summary={
+                    "cue_count": result.get("cue_count"),
+                    "translated": result.get("translated"),
+                },
+                stateDirectory=result.get("run_dir", request.state_dir),
+            )
+            return 0
+
         result = Orchestrator(config).run_all(
             request.input_path,
             progress=on_progress,
