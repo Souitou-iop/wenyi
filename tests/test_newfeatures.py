@@ -144,7 +144,7 @@ class TestPunct(unittest.TestCase):
             )
             orchestrator = Orchestrator(cfg, client=FakeClient())
 
-        self.assertFalse(orchestrator._punctuation_enabled())
+        self.assertFalse(orchestrator._runtime.punctuation_enabled())
 
 
 class TestLanguageProfile(unittest.TestCase):
@@ -171,8 +171,6 @@ class TestRunAll(unittest.TestCase):
                     "pipeline": {
                         "review": True,
                         "polish": True,
-                        "backtranslate_sample": 0.0,
-                        "consistency_qa": True,
                     },
                     "paths": {"state_dir": state},
                 }
@@ -191,8 +189,6 @@ class TestRunAll(unittest.TestCase):
             self.assertEqual(seen[-1][0], seen[-1][1])
             # auto 通过模型检测把源语言定为 ja
             self.assertEqual(cfg.source_lang, "ja")
-            # 报告含一致性字段。
-            self.assertIn("consistency_issues", result["report"])
             with open(result["store"].event_log_path, "r", encoding="utf-8") as f:
                 events = [json.loads(line) for line in f if line.strip()]
             event_names = [e["event"] for e in events]

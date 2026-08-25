@@ -114,6 +114,7 @@ def load_document(
     split_segments: int = 0,
     *,
     cache_dir: str | None = None,
+    source_hash: str | None = None,
 ) -> Document:
     """按文件扩展名读取文档，并按需拆分超过上限的翻译段。"""
     ext = os.path.splitext(path)[1].lower()
@@ -123,7 +124,7 @@ def load_document(
         doc = read_text(path, source_lang, target_lang)
     elif ext == ".fb2":
         doc = read_fb2(path, source_lang, target_lang)
-    elif ext in (".html", ".htm"):
+    elif ext in (".html", ".htm", ".xhtml"):
         doc = read_html(path, source_lang, target_lang)
     elif ext == ".pdf":
         if cache_dir is None:
@@ -133,9 +134,16 @@ def load_document(
             source_lang,
             target_lang,
             cache_dir=cache_dir,
+            source_hash=source_hash,
         )
+    elif ext == ".docx":
+        from .docx_reader import read_docx
+
+        doc = read_docx(path, source_lang, target_lang)
     else:
-        raise ValueError(f"不支持的格式：{ext}（支持 .epub / .txt / .md / .fb2 / .html / .pdf）")
+        raise ValueError(
+            f"不支持的格式：{ext}（支持 .epub / .txt / .md / .fb2 / .html / .xhtml / .pdf / .docx）"
+        )
 
     if split_segments and split_segments > 0:
         split_long_segments(doc.chapters, split_segments)

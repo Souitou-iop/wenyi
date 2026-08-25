@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 import tempfile
 import threading
 import unittest
@@ -69,6 +68,10 @@ class TestGlossary(unittest.TestCase):
         self.assertTrue(source_matches_text("ANN", "ann opened the door."))
         self.assertFalse(source_matches_text("Ann", "Anna opened the door."))
 
+    def test_cyrillic_source_match_respects_word_boundaries(self):
+        self.assertTrue(source_matches_text("гад", "Этот гад снова пришёл."))
+        self.assertFalse(source_matches_text("гад", "Этот гадкий человек снова пришёл."))
+
     def test_appellation_does_not_match_bare_name_alias(self):
         self.store.upsert_term(
             GlossaryTerm(
@@ -82,6 +85,60 @@ class TestGlossary(unittest.TestCase):
         hits = self.store.terms_in_text("「夏帆ちゃん」と母親が言った。")
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0].source, "夏帆ちゃん")
+
+    def test_recurring_terms_require_two_full_text_occurrences(self):
+        terms = [
+            GlossaryTerm(source="唯一术语", target="Unique"),
+            GlossaryTerm(source="重复术语", target="Repeated"),
+            GlossaryTerm(
+                source="AliasCanonical",
+                target="Alias",
+                aliases=["别名"],
+            ),
+            GlossaryTerm(
+                source="夏帆ちゃん",
+                target="小夏帆",
+                type=TYPE_APPELLATION,
+                aliases=["夏帆"],
+            ),
+        ]
+        corpus = "唯一术语。重复术语再次成为重复术语。别名先来，别名再来。夏帆出现两次，夏帆。"
+
+        recurring = GlossaryStore.recurring_terms(terms, corpus)
+
+        self.assertEqual(
+            {term.source for term in recurring},
+            {"重复术语", "AliasCanonical"},
+        )
+
+        overlapping_alias = GlossaryTerm(
+            source="夏帆",
+            target="Kaho",
+            aliases=["夏帆ちゃん"],
+        )
+        self.assertEqual(
+            GlossaryStore.recurring_terms(
+                [overlapping_alias],
+                "夏帆ちゃん只在全文出现一次。",
+            ),
+            [],
+        )
+
+        cyrillic = GlossaryTerm(source="гад", target="畜生")
+        self.assertEqual(
+            GlossaryStore.recurring_terms(
+                [cyrillic],
+                "Один гад ушёл, но гадкий человек остался гадким.",
+            ),
+            [],
+        )
+        self.assertEqual(
+            GlossaryStore.recurring_terms(
+                [cyrillic],
+                "Один гад ушёл, затем другой гад пришёл.",
+            ),
+            [cyrillic],
+        )
 
     def test_conflict_keeps_current_until_resolved(self):
         self.store.upsert_term(GlossaryTerm(source="堀北", target="堀北"), chapter=0)
@@ -126,29 +183,40 @@ class TestGlossary(unittest.TestCase):
         finally:
             check.close()
 
-    def test_opening_store_removes_legacy_translation_memory_table(self):
-        self.store.close()
-        with sqlite3.connect(self.store.db_path) as conn:
-            conn.execute(
-                """CREATE TABLE translation_memory (
-                    source_hash TEXT PRIMARY KEY,
-                    source_text TEXT NOT NULL,
-                    target_text TEXT NOT NULL
-                )"""
-            )
-            conn.execute("INSERT INTO translation_memory VALUES ('hash', 'source', 'target')")
-
-        self.store = GlossaryStore(self.store.db_path)
-        row = self.store.conn.execute(
-            """SELECT 1 FROM sqlite_master
-               WHERE type='table' AND name='translation_memory'"""
-        ).fetchone()
-        self.assertIsNone(row)
-
     def test_stats(self):
         self.store.upsert_term(GlossaryTerm(source="A", target="甲"))
         s = self.store.stats()
         self.assertEqual(s, {"terms": 1, "open_conflicts": 0})
+
+    def test_all_terms_preserves_insert_order_not_type_source_sort(self):
+        """入库先后决定 all_terms 顺序，避免新词插队打乱 prompt 前缀缓存。"""
+        # 故意先插「乙」(type 术语)，再插「甲」(type 人物)：字母/类型序会变成 甲,乙。
+        self.store.upsert_term(
+            GlossaryTerm(source="乙", target="Yi", type="术语"),
+            chapter=0,
+        )
+        self.store.upsert_term(
+            GlossaryTerm(source="甲", target="Jia", type=TYPE_PERSON),
+            chapter=0,
+        )
+        self.assertEqual(
+            [term.source for term in self.store.all_terms()],
+            ["乙", "甲"],
+        )
+        # 人工改定译法（或同 target 合并字段）不得改变入库位置。
+        self.assertTrue(self.store.resolve_term("乙", "Yi-updated"))
+        terms = self.store.all_terms()
+        self.assertEqual([term.source for term in terms], ["乙", "甲"])
+        self.assertEqual(terms[0].target, "Yi-updated")
+        # 新词只能追加在末尾。
+        self.store.upsert_term(
+            GlossaryTerm(source="丙", target="Bing", type=TYPE_PERSON),
+            chapter=1,
+        )
+        self.assertEqual(
+            [term.source for term in self.store.all_terms()],
+            ["乙", "甲", "丙"],
+        )
 
 
 if __name__ == "__main__":
