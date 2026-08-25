@@ -32,3 +32,6 @@ src-tauri/target/
 src-tauri/gen/
 desktop/node_modules/
 desktop/dist/
+
+# Allow desktop frontend entrypoint
+!desktop/index.html
