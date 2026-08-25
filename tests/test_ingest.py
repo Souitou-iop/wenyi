@@ -427,7 +427,7 @@ class TestEpubIngest(unittest.TestCase):
 <div><p>块内正文。</p></div>
 </body></html>"""
         _title, segments, template = annotate_epub_resource(html, 0, "chapter.xhtml")
-        self.assertEqual([s.source for s in segments], ["先輩は東京へ行った。", "「またね」", "块内正文。"])
+        self.assertEqual([s.source for s in segments], ["先輩は東京〘とうきょう〙へ行った。", "「またね」", "块内正文。"])
         self.assertTrue(all(s.anchor and s.anchor in template for s in segments))
         segments[0].target = "前辈去了东京。"
         segments[1].target = "“再见。”"
