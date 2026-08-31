@@ -54,7 +54,7 @@ Wenyi is designed for **long-form texts** — novels, social-science monographs,
 - **Real-time glossary** — extracts proper names, terms, and recurring expressions as translation progresses; detects conflicting translations and surfaces them for resolution
 - **Multi-stage quality** — optional polishing (strong model) and an evidence-driven whole-book AI review
 - **Resumability** — batch-level checkpoints, chapter status tracking, and atomic state writes; interrupt at any point and resume with the same command
-- **Multiple LLM providers** — DeepSeek, OpenAI, OpenRouter, Google Gemini, Ollama, vLLM, and generic OpenAI-compatible endpoints
+- **Multiple LLM providers** — DeepSeek, OpenAI, OpenRouter, OrcaRouter, Google Gemini, Ollama, vLLM, and generic OpenAI-compatible endpoints
 - **Native EPUB preservation** — writes translated text back into the original XHTML templates and attempts to preserve styles, images, TOC, and anchors
 - **Bilingual output** — optional source-and-translation edition with visually subdued source text, including dark mode support
 
@@ -130,6 +130,7 @@ reached its final state, or run Agent Review independently:
 
 ```bash
 uv run trans-novel review book.epub
+uv run trans-novel review book.epub --autofix
 ```
 
 Each Review run starts from the beginning, checks chunks concurrently, and can
@@ -137,9 +138,12 @@ selectively request cross-book evidence before resolving contradictory
 consistency suggestions. Confirmed issues can produce provisional full-segment
 replacements in a run-local shadow translation. A fresh whole-book review sees
 the shadow text—but not the previous issue explanation—and validates it again.
-Formal translation state is never modified. The consolidated read-only result,
-run usage, events, and internal round records are written under
-`state/<book>/reviews/review-<timestamp>/`.
+Review is read-only by default. With `--autofix` (or
+`pipeline.review_autofix: true`), folded changes are applied first and remaining
+issues reuse the existing Review Agent Loop and Fixer against that updated text.
+Only formal segment `target` values are replaced; full history stays in the Review
+directory's `autofix/index.json`. The consolidated result, run usage, events, and
+internal records are written under `state/<book>/reviews/review-<timestamp>/`.
 
 ---
 
@@ -183,14 +187,18 @@ flowchart TD
     K --> N{Confirmed issues and<br/>Fix budget remaining?}
     N -- Yes --> O[Generate provisional shadow fixes<br/>From one immutable snapshot]
     O --> K
-    N -- No or stopped --> P[Save read-only issues<br/>and modification suggestions]
-    P --> M[Generate the report and assemble the selected output]
+    N -- No or stopped --> P[Save Review issues<br/>and folded changes]
+    P --> Q{Autofix enabled?}
+    Q -- Yes --> R[Overlay changes; reuse Agent Loop and Fixer<br/>Publish final segment targets]
+    Q -- No --> M[Generate the report and assemble the selected output]
+    R --> M
 ```
 
 When enabled, the prescan runs in parallel with configurable concurrency and is idempotent — completed digests are reused across runs. During translation, each batch receives the most recent glossary snapshot and translated context, keeping pronouns, terms, and tone consistent across chapters.
 The Review Fixer receives the same style brief, book synopsis, chapter digest,
 relevant glossary subset, and nearby source/translation context used to preserve
-the book's voice. Its replacements remain temporary review suggestions.
+the book's voice. Its normal Review-loop replacements remain temporary; the
+optional Autofix publisher can later reuse it to produce formal segment targets.
 
 ---
 

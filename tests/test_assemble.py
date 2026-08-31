@@ -36,6 +36,7 @@ from trans_novel.ingest.segmenter import load_document
 from trans_novel.llm.providers.fake import FakeClient
 from trans_novel.pipeline.orchestrator import Orchestrator
 from trans_novel.pipeline.runstore import RunStore
+from trans_novel.review.run_store import ReviewRunStore
 
 _FB2_WITH_IMAGES = """\
 <?xml version="1.0" encoding="utf-8"?>
@@ -1477,6 +1478,115 @@ class TestTitleTranslation(unittest.TestCase):
         self.assertNotIn(">old<", dec)
 
 
+class TestEpubTocMisdetectRegression(unittest.TestCase):
+    """回归：带「返回目录」链接的正文页不应被当成 TOC 改写。
+
+    对应 #183 / #184：章节标题变成「目录」、目录条目重复 / 悬空 fallback。
+    """
+
+    def test_is_nav_rejects_chapter_body_with_content_toc_link(self):
+        from trans_novel.assemble.epub_writer import _is_nav
+
+        chapter = (
+            b'<html xmlns:epub="http://www.idpf.org/2007/ops"><body>'
+            b'<section epub:type="chapter">'
+            b'<h1><a href="content-toc.xhtml">CHAPTER 1</a></h1>'
+            b"<p>Body text.</p></section></body></html>"
+        )
+        # 旧逻辑只查 epub:type + toc 子串，会把这类正文误判为导航页。
+        self.assertFalse(_is_nav(chapter))
+
+    def test_is_nav_accepts_explicit_toc_nav(self):
+        from trans_novel.assemble.epub_writer import _is_nav
+
+        nav = (
+            b'<html xmlns:epub="http://www.idpf.org/2007/ops"><body>'
+            b'<nav epub:type="toc"><ol>'
+            b'<li><a href="ch1.xhtml">Chapter 1</a></li>'
+            b"</ol></nav></body></html>"
+        )
+        self.assertTrue(_is_nav(nav))
+        self.assertTrue(
+            _is_nav(b'<html><body><nav role="doc-toc"><ol><li>x</li></ol></nav></body></html>')
+        )
+
+    def test_rewrite_toc_skips_chapter_body_without_toc_nav(self):
+        from trans_novel.assemble.epub_writer import _rewrite_toc
+
+        chapter = (
+            b'<html xmlns:epub="http://www.idpf.org/2007/ops"><body>'
+            b'<section epub:type="chapter">'
+            b'<h1><a href="content-toc.xhtml">CHAPTER 1</a></h1>'
+            b"<p>Body text.</p></section></body></html>"
+        )
+        entries = [
+            {
+                "toc_path": "ch1.xhtml",
+                "node_index": 0,
+                "raw_href": "content-toc.xhtml",
+                "title_translated": "目录",
+                "title": "Contents",
+            }
+        ]
+
+        out = _rewrite_toc(chapter, entries, is_ncx=False, toc_path="ch1.xhtml")
+        text = out.decode("utf-8")
+        self.assertIn("CHAPTER 1", text)
+        self.assertNotIn(">目录<", text)
+        self.assertEqual(out, chapter)
+
+    def test_heading_wrapped_in_toc_link_keeps_translation_inside_anchor(self):
+        """整段源文被 <a href=content-toc> 包住且无对齐时，译文进链接，不挂悬空 ↩。"""
+        target = "第一章"
+        source = "CHAPTER 1"
+        template = (
+            '<html><body><h1 data-tn-id="tn1_0">'
+            '<a data-tn-annotation-id="ann-0" href="content-toc.xhtml">CHAPTER 1</a>'
+            "</h1></body></html>"
+        )
+        segment = Segment(
+            index=0,
+            source=source,
+            target=target,
+            kind="heading",
+            anchor="tn1_0",
+            meta={
+                "epub_annotations": {
+                    "version": 1,
+                    "source_length": len(source),
+                    "items": [
+                        {
+                            "id": "ann-0",
+                            "mode": "range",
+                            "source_start": 0,
+                            "source_end": len(source),
+                            "source_text": source,
+                            "marker_text": "",
+                        }
+                    ],
+                    # 故意不给可用 placement / digest；须覆盖整段 source 才走整块回填。
+                }
+            },
+        )
+
+        rendered = BeautifulSoup(
+            _render_segments_html(template, [segment]),
+            "html.parser",
+        )
+        heading = rendered.find("h1")
+        self.assertIsInstance(heading, Tag)
+        assert isinstance(heading, Tag)
+        link = heading.find("a")
+        self.assertIsInstance(link, Tag)
+        assert isinstance(link, Tag)
+        self.assertEqual(link.get("href"), "content-toc.xhtml")
+        self.assertEqual(link.get_text(strip=True), target)
+        self.assertEqual(heading.get_text(strip=True), target)
+        self.assertNotIn("↩", heading.get_text())
+        self.assertNotIn("目录", heading.get_text())
+        self.assertIsNone(rendered.select_one("[data-tn-annotation-id]"))
+
+
 class TestReport(unittest.TestCase):
     def test_report_summary(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1493,6 +1603,45 @@ class TestReport(unittest.TestCase):
             self.assertNotIn("low_confidence_terms", report)
             self.assertNotIn("chapters_reviewed", s)
             self.assertNotIn("review_issues", report)
+
+    def test_report_marks_review_autofix_as_published(self):
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            store, _ = _run(txt, os.path.join(d, "state"))
+            review = ReviewRunStore(store.run_dir)
+            review.start(
+                reviewed_content_digest="digest",
+                metadata={"config": {}, "glossary_fingerprint": "g"},
+            )
+            result = review.finish(
+                status="completed",
+                termination="max_rounds",
+                summary={"issue_count": 2, "change_count": 1},
+                issues=[],
+                changes=[],
+            )
+            review.write_json(
+                "result.json",
+                {
+                    **result,
+                    "autofix": {
+                        "enabled": True,
+                        "status": "partial",
+                        "applied_segment_count": 1,
+                        "failed_issue_count": 1,
+                    },
+                },
+            )
+            glossary = GlossaryStore(store.glossary_path)
+
+            report = build_report(store, glossary)
+            glossary.close()
+
+            self.assertFalse(report["review"]["read_only"])
+            self.assertEqual(report["review"]["autofix_status"], "partial")
+            self.assertEqual(report["review"]["autofix_applied_segment_count"], 1)
+            self.assertEqual(report["review"]["autofix_failed_issue_count"], 1)
 
 
 if __name__ == "__main__":
