@@ -1,4 +1,4 @@
-"""术语库测试。"""
+"""Glossary tests."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class TestGlossary(unittest.TestCase):
                 source="綾小路",
                 target="绫小路",
                 type=TYPE_PERSON,
-                gender="男",
+                gender="male",
                 aliases=["綾小路くん"],
                 reading="あやのこうじ",
             ),
@@ -42,21 +42,23 @@ class TestGlossary(unittest.TestCase):
         t = self.store.get_term("綾小路")
         assert t is not None
         self.assertEqual(t.target, "绫小路")
-        self.assertEqual(t.gender, "男")
+        self.assertEqual(t.gender, "male")
 
-    def test_terms_in_text_matches_alias(self):
+    def test_terms_in_matches_alias(self):
         self.store.upsert_term(
             GlossaryTerm(source="綾小路", target="绫小路", aliases=["綾小路くん"])
         )
-        hits = self.store.terms_in_text("「おはよう、綾小路くん」と堀北が言った。")
+        hits = self.store.terms_in(
+            self.store.all_terms(), "「おはよう、綾小路くん」と堀北が言った。"
+        )
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0].source, "綾小路")
 
-    def test_terms_in_text_normalizes_case_and_character_width(self):
+    def test_terms_in_normalizes_case_and_character_width(self):
         self.store.upsert_term(GlossaryTerm(source="OpenAI", target="开放人工智能"))
         self.store.upsert_term(GlossaryTerm(source="ＡＢＣ", target="ABC 组织"))
 
-        hits = self.store.terms_in_text("openai 与 ABC")
+        hits = self.store.terms_in(self.store.all_terms(), "openai 与 ABC")
 
         self.assertEqual(
             {term.source for term in hits},
@@ -81,8 +83,8 @@ class TestGlossary(unittest.TestCase):
                 aliases=["夏帆"],
             )
         )
-        self.assertEqual(self.store.terms_in_text("夏帆は窓の外を見た。"), [])
-        hits = self.store.terms_in_text("「夏帆ちゃん」と母親が言った。")
+        self.assertEqual(self.store.terms_in(self.store.all_terms(), "夏帆は窓の外を見た。"), [])
+        hits = self.store.terms_in(self.store.all_terms(), "「夏帆ちゃん」と母親が言った。")
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0].source, "夏帆ちゃん")
 
@@ -142,7 +144,7 @@ class TestGlossary(unittest.TestCase):
 
     def test_conflict_keeps_current_until_resolved(self):
         self.store.upsert_term(GlossaryTerm(source="堀北", target="堀北"), chapter=0)
-        # 提交不同译法：保留当前译法并记录候选项。
+        # An alternate translation preserves the established mapping and records a candidate.
         r = self.store.upsert_term(GlossaryTerm(source="堀北", target="掘北"), chapter=1)
         self.assertEqual(r, "conflict")
         term = self.store.get_term("堀北")
@@ -189,10 +191,12 @@ class TestGlossary(unittest.TestCase):
         self.assertEqual(s, {"terms": 1, "open_conflicts": 0})
 
     def test_all_terms_preserves_insert_order_not_type_source_sort(self):
-        """入库先后决定 all_terms 顺序，避免新词插队打乱 prompt 前缀缓存。"""
-        # 故意先插「乙」(type 术语)，再插「甲」(type 人物)：字母/类型序会变成 甲,乙。
+        """Insertion order controls all_terms so new entries cannot disrupt prompt prefix
+        caching.
+        """
+        # Insert terms in an order that differs from type/source sorting deliberately.
         self.store.upsert_term(
-            GlossaryTerm(source="乙", target="Yi", type="术语"),
+            GlossaryTerm(source="乙", target="Yi", type="term"),
             chapter=0,
         )
         self.store.upsert_term(
@@ -203,12 +207,12 @@ class TestGlossary(unittest.TestCase):
             [term.source for term in self.store.all_terms()],
             ["乙", "甲"],
         )
-        # 人工改定译法（或同 target 合并字段）不得改变入库位置。
+        # Human resolution or same-target field merging must not change insertion position.
         self.assertTrue(self.store.resolve_term("乙", "Yi-updated"))
         terms = self.store.all_terms()
         self.assertEqual([term.source for term in terms], ["乙", "甲"])
         self.assertEqual(terms[0].target, "Yi-updated")
-        # 新词只能追加在末尾。
+        # New terms may only append to the end.
         self.store.upsert_term(
             GlossaryTerm(source="丙", target="Bing", type=TYPE_PERSON),
             chapter=1,

@@ -83,7 +83,7 @@ CLI → Orchestrator → Runtime / Preparation / Translation / Annotation /
 ## 输入与输出约束
 
 - EPUB 修改要同时考虑模板回填、TOC、锚点、内部注释链接、图片、双语原文样式和超长段回并。
-- PDF 默认使用 BabelDOC（外部 AGPL HTTP bridge）；MinerU 用于扫描件或无文本层页面。纯图片且无文本层时应给出可操作提示，不应假装成功解析。
+- PDF 默认使用 MinerU；BabelDOC（外部 AGPL HTTP bridge）用于尽量保留版式的可选路径。纯图片且无文本层时应给出可操作提示，不应假装成功解析。
 - DOCX 修改要保留段落/运行级样式、列表、表格、标题、目录和中英文字体策略。
 - 输出格式或命名变化要覆盖单语、双语、显式 `--out`、默认输出目录和并发导出快照。
 - 标点、术语命中等可确定行为优先实现为纯函数，并使用边界案例单测固定。
@@ -129,7 +129,7 @@ uv run --no-sync pytest -q
 
 ## 代码与文档风格
 
-- 遵循现有中文领域命名、注释和用户提示；公共代码保持清晰类型提示和简短 docstring。
+- 代码注释、docstring、配置注释和默认 CLI 文案统一使用标准英语；公共代码保持清晰类型提示。提示词指令使用英语，模型生成的说明性内容使用目标语言，原文身份字段与语言示例保留原样。
 - Ruff 配置以 `pyproject.toml` 为准：目标 Python 3.10、行宽 100、E/W/F/I 检查。
 - 优先小而可审查的改动，避免顺手重排大文件或更改无关行为。
 - 用户行为变化必须更新英文与中文文档；README、usage、configuration、pipeline 只更新受影响部分并保持两种语言一致。

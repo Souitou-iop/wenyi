@@ -399,8 +399,9 @@ class TaskManager:
             await queue.put(event)
 
     def _write_config(self, path: Path, settings: WebSettings, state_dir: Path) -> None:
+        from .llm.migration import convert_config
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.safe_dump({
+        raw_config = {
             "language": {"source": settings.source_lang, "target": "zh"},
             "llm": {
                 "provider": settings.provider,
@@ -432,7 +433,9 @@ class TaskManager:
                 "about_page": settings.about_page,
             },
             "paths": {"state_dir": str(state_dir)},
-        }, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        }
+        converted = convert_config(raw_config)
+        path.write_text(yaml.safe_dump(converted, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
     async def start(self, book: dict[str, Any], output_format: str = "epub", task_id: str | None = None) -> dict[str, Any]:
         async with self.lifecycle_lock:
@@ -462,8 +465,13 @@ class TaskManager:
         if previous and config_path.exists():
             snapshot = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
             snapshot_llm = snapshot.get("llm") or {}
-            snapshot_provider = snapshot_llm.get("provider", "deepseek")
-            snapshot_base_url = str(snapshot_llm.get("base_url") or "").rstrip("/")
+            if "providers" in snapshot_llm:
+                default_prov = snapshot_llm["providers"].get("default", {})
+                snapshot_provider = default_prov.get("kind", "deepseek")
+                snapshot_base_url = str(default_prov.get("base_url") or "").rstrip("/")
+            else:
+                snapshot_provider = snapshot_llm.get("provider", "deepseek")
+                snapshot_base_url = str(snapshot_llm.get("base_url") or "").rstrip("/")
             current_base_url = settings.base_url.rstrip("/")
             if (
                 snapshot_provider != settings.provider

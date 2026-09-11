@@ -1,13 +1,11 @@
-"""收尾服务：ReportService（术语库生命周期、报告生成）与 AssemblyService（成品导出）。
-
-ReportService 负责术语库生命周期、build_report、report.json 和对应事件。
-AssemblyService 提供“实时状态导出”和“只读快照导出”两个内部入口，负责
-mono/bilingual 输出和所有格式参数传递。
-
-独立 assemble 仍不获取长时间 run lock：在 assemble lock 下创建不可变 export
-snapshot，释放短 state lock 后渲染，并在渲染前后验证源文件哈希。全流程中的
-assemble 继续使用当前 run lock 内的实时状态，同时叠加 assemble lock，避免
-多个导出写者互相覆盖。
+"""Report and assembly finalization services.
+ReportService owns glossary lifetime, build_report, report.json and related events.
+AssemblyService exports monolingual/bilingual products from live state or immutable
+snapshots and forwards format options.
+Standalone assembly avoids the long run lock: capture a snapshot under the assembly/state
+locks, release the short state lock before rendering, and validate source hashes before and
+after. Full-workflow assembly uses live state under its existing run lock plus the assembly
+lock to serialize output writers.
 """
 
 from __future__ import annotations
@@ -17,6 +15,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from ..glossary.store import GlossaryStore
+from .runstore import source_sha256
 
 if TYPE_CHECKING:
     from .runstore import RunStore
@@ -26,14 +25,14 @@ ProgressFn = Callable[[int, int, str], None]
 
 
 class ReportService:
-    """术语库生命周期与报告生成的领域服务。"""
+    """Domain service for glossary lifetime and report generation."""
 
     def __init__(self, runtime: PipelineRuntime):
         self._runtime = runtime
 
     @contextmanager
     def glossary_scope(self, store: RunStore, needed: bool) -> Iterator[GlossaryStore | None]:
-        """为收尾步骤打开术语库，并保证在 finally 中关闭。"""
+        """Open the glossary for finalization and guarantee closure in finally."""
         glossary = GlossaryStore(store.glossary_path) if needed else None
         try:
             yield glossary
@@ -48,17 +47,12 @@ class ReportService:
         *,
         progress: ProgressFn | None = None,
     ) -> dict[str, Any]:
-        """生成报告并落盘 report.json，记录对应事件。"""
+        """Generate and persist report.json and record the corresponding event."""
         from ..assemble.report import build_report
 
         if progress:
-            progress(0, 0, "生成报告…")
-        report = self._runtime.measure_stage_call(
-            "report",
-            build_report,
-            store,
-            glossary,
-        )
+            progress(0, 0, "Generating report…")
+        report = build_report(store, glossary)
         assert report is not None
         store.save_report(report)
         store.log_event("report_saved", path=store.report_path)
@@ -66,7 +60,7 @@ class ReportService:
 
 
 class AssemblyService:
-    """实时状态导出与只读快照导出的领域服务。"""
+    """Domain service for live-state and read-only snapshot exports."""
 
     def __init__(self, runtime: PipelineRuntime):
         self._runtime = runtime
@@ -81,11 +75,12 @@ class AssemblyService:
         out_path: str | None,
         pdf_engine: str,
     ) -> list[str]:
-        """从给定实时状态或只读快照生成配置要求的全部产物。"""
-        from ..assemble.writer import assemble, bilingual_out_path
+        """Generate every configured artifact from live state or a read-only snapshot."""
+        from ..assemble.writer import assemble
+        from ..assemble.writer_common import bilingual_out_path
 
         if progress:
-            progress(0, 0, "回填译文…")
+            progress(0, 0, "Assembling translation…")
         out_cfg = self._runtime.config.output
         do_mono, do_bilingual = out_cfg.mono, out_cfg.bilingual
         if not do_mono and not do_bilingual:
@@ -94,9 +89,7 @@ class AssemblyService:
         outputs: list[str] = []
         if do_mono:
             outputs.append(
-                self._runtime.measure_stage_call(
-                    "assemble",
-                    assemble,
+                assemble(
                     store,
                     input_path,
                     out_path=out_path,
@@ -111,9 +104,7 @@ class AssemblyService:
         if do_bilingual:
             bi_out_path = bilingual_out_path(out_path) if out_path else None
             outputs.append(
-                self._runtime.measure_stage_call(
-                    "assemble",
-                    assemble,
+                assemble(
                     store,
                     input_path,
                     out_path=bi_out_path,
@@ -139,9 +130,11 @@ class AssemblyService:
         out_path: str | None,
         pdf_engine: str,
     ) -> list[str]:
-        """在书级锁内的实时状态上导出，叠加 assemble lock 串行化导出写者。"""
+        """Export under the book run lock, adding the assembly lock to serialize output
+        writers.
+        """
         with store.assemble_lock():
-            # 导出会重新读取源书模板；在读取前后都验证，避免运行期间替换文件。
+            # Export rereads the source template; validate before and after to detect replacement during the run.
             self._runtime.ensure_store_source(store, input_path)
             outputs = self.assemble_outputs(
                 store,
@@ -165,16 +158,14 @@ class AssemblyService:
         out_path: str | None,
         pdf_engine: str,
     ) -> list[str]:
-        """不等待翻译锁：在 assemble lock 下创建不可变快照，渲染前后验证源文件哈希。"""
+        """Capture an immutable snapshot under the assembly lock and validate source hashes
+        around rendering.
+        """
         with store.assemble_lock():
-            snapshot = self._runtime.measure_stage_call(
-                "prepare",
-                store.create_export_snapshot,
-                actual_sha256=self._runtime.source_sha256(input_path),
-            )
+            snapshot = store.create_export_snapshot(actual_sha256=source_sha256(input_path))
             self._runtime.apply_manifest_languages(snapshot.load_manifest())
-            self._runtime.capture_metrics_state(snapshot)
-            # 等待另一个导出期间源文件也可能变化，因此真正渲染前再次确认。
+
+            # The source may change while waiting for another export; validate again immediately before rendering.
             self._runtime.ensure_store_source(store, input_path)
             outputs = self.assemble_outputs(
                 snapshot,
@@ -184,7 +175,7 @@ class AssemblyService:
                 out_path=out_path,
                 pdf_engine=pdf_engine,
             )
-            # 原模板也属于导出输入；渲染后再次核验，避免把中途替换的源文件记为成功。
+            # The source template is an export input; validate afterward so mid-render replacement cannot succeed.
             self._runtime.ensure_store_source(store, input_path)
         self._runtime.log_event(store, "assembled", outputs=outputs, out_format=out_format)
         return outputs

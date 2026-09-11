@@ -1,4 +1,4 @@
-"""取证式 Review Agent Loop、全书证据索引和冲突仲裁测试。"""
+"""Evidence-loop, whole-book evidence-index and arbitration tests."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from trans_novel.config import Config
 from trans_novel.glossary.store import GlossaryStore, GlossaryTerm
 from trans_novel.ingest.models import Chapter, Segment
 from trans_novel.llm.providers.fake import FakeClient
+from trans_novel.llm.routing import inference_snapshot
 from trans_novel.review.evidence import BookEvidenceIndex
 from trans_novel.review.run_store import ReviewRunStore, review_candidate_id
 
@@ -36,15 +37,14 @@ def _config() -> Config:
         {
             "language": {"source": "en", "target": "zh"},
             "llm": {
-                "provider": "fake",
-                "tiers": {
-                    "strong": {"model": "strong"},
-                    "cheap": {"model": "cheap"},
+                "preset": "fake",
+                "models": {
+                    "default_strong": {"provider": "default", "model": "strong"},
+                    "default_cheap": {"provider": "default", "model": "cheap"},
                 },
             },
             "pipeline": {
                 "review_agent_max_evidence_rounds": 2,
-                "review_agent_tier": "strong",
             },
         }
     )
@@ -75,7 +75,7 @@ class TestBookEvidenceIndex(unittest.TestCase):
             ),
             _chapter(1, [("ANN returned.", "安回来了。"), ("End.", "结束。")]),
         ]
-        self.term = GlossaryTerm(source="Ann", target="安", aliases=["Annie"], type="人物")
+        self.term = GlossaryTerm(source="Ann", target="安", aliases=["Annie"], type="person")
         self.index = BookEvidenceIndex(
             self.chapters,
             [self.term],
@@ -129,7 +129,7 @@ class TestBookEvidenceIndex(unittest.TestCase):
         )
 
     def test_exact_source_wins_over_another_terms_same_alias(self):
-        other = GlossaryTerm(source="Anne", target="安妮", aliases=["Ann"], type="人物")
+        other = GlossaryTerm(source="Anne", target="安妮", aliases=["Ann"], type="person")
         index = BookEvidenceIndex(self.chapters, [self.term, other], {})
 
         term, ambiguous = index.canonical_term("Ann")
@@ -138,8 +138,8 @@ class TestBookEvidenceIndex(unittest.TestCase):
         self.assertEqual(ambiguous, [])
 
     def test_exact_case_sensitive_source_wins_and_normalized_collision_is_ambiguous(self):
-        upper = GlossaryTerm(source="ANN", target="甲", aliases=["Alice"], type="人物")
-        title = GlossaryTerm(source="Ann", target="乙", aliases=["Annie"], type="人物")
+        upper = GlossaryTerm(source="ANN", target="甲", aliases=["Alice"], type="person")
+        title = GlossaryTerm(source="Ann", target="乙", aliases=["Annie"], type="person")
         index = BookEvidenceIndex(
             [_chapter(0, [("Alice arrived.", "甲到了。"), ("Annie left.", "乙走了。")])],
             [upper, title],
@@ -172,8 +172,8 @@ class TestBookEvidenceIndex(unittest.TestCase):
         self.assertIn(result["glossary_term"]["ref"], BookEvidenceIndex.evidence_refs(result))
 
     def test_distinct_exact_sources_are_not_merged_into_one_conflict_key(self):
-        upper = GlossaryTerm(source="ANN", target="甲", type="人物")
-        title = GlossaryTerm(source="Ann", target="乙", type="人物")
+        upper = GlossaryTerm(source="ANN", target="甲", type="person")
+        title = GlossaryTerm(source="Ann", target="乙", type="person")
         evidence = BookEvidenceIndex(self.chapters, [upper, title], {})
         issues = normalize_review_issues(
             [
@@ -439,13 +439,13 @@ class TestReviewFixer(unittest.TestCase):
 
 class TestReadonlyGlossarySnapshot(unittest.TestCase):
     def test_reads_committed_wal_without_touching_formal_database_files(self):
-        """只读 Review 快照必须包含尚未 checkpoint 的已提交 WAL。"""
+        """Read-only glossary snapshots must include committed, uncheckpointed WAL data."""
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "glossary.db")
             writer = GlossaryStore(path)
             try:
                 writer.upsert_term(
-                    GlossaryTerm(source="Ann", target="安", type="人物"),
+                    GlossaryTerm(source="Ann", target="安", type="person"),
                     chapter=0,
                 )
                 watched = [path, f"{path}-wal", f"{path}-shm"]
@@ -466,18 +466,18 @@ class TestReadonlyGlossarySnapshot(unittest.TestCase):
                 writer.close()
 
     def test_retries_when_checkpoint_changes_db_and_wal_between_copies(self):
-        """DB/WAL 跨文件复制若撞上 checkpoint，不得接受混合时点快照。"""
+        """A checkpoint during DB/WAL copying must not produce an accepted mixed-time snapshot."""
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "glossary.db")
             writer = GlossaryStore(path)
             try:
                 writer.upsert_term(
-                    GlossaryTerm(source="Ann", target="安", type="人物"),
+                    GlossaryTerm(source="Ann", target="安", type="person"),
                     chapter=0,
                 )
                 writer.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 writer.upsert_term(
-                    GlossaryTerm(source="Bob", target="鲍勃", type="人物"),
+                    GlossaryTerm(source="Bob", target="鲍勃", type="person"),
                     chapter=0,
                 )
                 real_copy = shutil.copy2
@@ -578,8 +578,11 @@ class TestReviewRunStore(unittest.TestCase):
 
     @staticmethod
     def _usage_summary(calls: int, tokens: int) -> dict:
-        """构造与 usage_delta 输出同构的用量摘要。"""
+        """Build usage data with the same shape as usage_delta output."""
         return {
+            "schema_version": 2,
+            "by_provider": {},
+            "by_model": {},
             "totals": {
                 "calls": calls,
                 "prompt_tokens": tokens,
@@ -599,7 +602,7 @@ class TestReviewRunStore(unittest.TestCase):
                 }
             },
             "by_stage": {
-                "Reviewer": {
+                "review.scan": {
                     "calls": calls,
                     "prompt_tokens": tokens,
                     "completion_tokens": 0,
@@ -611,7 +614,7 @@ class TestReviewRunStore(unittest.TestCase):
         }
 
     def test_save_usage_merges_increments_across_resumes(self):
-        """save_usage 必须与已落盘用量合并，跨进程续跑不丢。"""
+        """save_usage must merge persisted usage without loss across process resumes."""
         with tempfile.TemporaryDirectory() as directory:
             debug = ReviewRunStore(directory)
             debug.save_usage(self._usage_summary(2, 100))
@@ -621,10 +624,12 @@ class TestReviewRunStore(unittest.TestCase):
 
         self.assertEqual(saved["totals"]["calls"], 5)
         self.assertEqual(saved["totals"]["total_tokens"], 150)
-        self.assertEqual(saved["by_stage"]["Reviewer"]["calls"], 5)
+        self.assertEqual(saved["by_stage"]["review.scan"]["calls"], 5)
 
     def test_rebuild_snapshots_skips_stale_subchunks_contained_in_parent(self):
-        """rebuild 时父块与陈旧子块并存，只统计一次（大块优先）。"""
+        """When parent and stale child chunks coexist, count once by rebuilding larger blocks
+        first.
+        """
         with tempfile.TemporaryDirectory() as directory:
             debug = ReviewRunStore(directory)
             debug.mark_chunk_done(
@@ -678,7 +683,7 @@ class TestReviewRunStore(unittest.TestCase):
         )
 
     def test_rebuild_snapshots_is_idempotent_across_resumes(self):
-        """多次恢复（每次新进程重建内存聚合）后快照不重复叠加。"""
+        """Repeated process-style restores must not duplicate aggregated snapshots."""
         with tempfile.TemporaryDirectory() as directory:
             debug = ReviewRunStore(directory)
             debug.mark_chunk_done(
@@ -707,7 +712,7 @@ class TestReviewRunStore(unittest.TestCase):
             )
 
             def snapshot_counts() -> tuple[int, int]:
-                # 模拟一次恢复进程：全新 ReviewRunStore 从磁盘重建
+                # Simulate a new process by rebuilding a fresh ReviewRunStore from disk.
                 fresh = ReviewRunStore(directory)
                 with fresh.round_scope(1):
                     fresh.rebuild_snapshots_from_chunks(1)
@@ -719,15 +724,17 @@ class TestReviewRunStore(unittest.TestCase):
                 return len(keys), len(set(keys))
 
             first, first_unique = snapshot_counts()
-            # 第二次、第三次“进程”恢复：行数与唯一性必须保持不变
+            # Second and third restores must preserve row counts and uniqueness.
             for _ in range(2):
                 count, unique = snapshot_counts()
                 self.assertEqual(count, first)
                 self.assertEqual(unique, first_unique)
-            self.assertEqual(first_unique, first)  # 任何一次恢复内部都无重复行
+            self.assertEqual(
+                first_unique, first
+            )  # No restore may introduce duplicate rows internally.
 
     def test_from_existing_restores_started_at_from_result(self):
-        """续跑恢复时 started_at 必须从 result.json 恢复。"""
+        """Restore started_at from result.json on resume."""
         with tempfile.TemporaryDirectory() as directory:
             moment = datetime(2026, 7, 27, 12, 30, tzinfo=timezone.utc)
             debug = ReviewRunStore(directory, now=moment)
@@ -761,7 +768,7 @@ class TestReviewAgentLoop(unittest.TestCase):
                     ],
                 )
             ],
-            [GlossaryTerm(source="Ann", target="安", type="人物")],
+            [GlossaryTerm(source="Ann", target="安", type="person")],
             {},
         )
 
@@ -773,7 +780,8 @@ class TestReviewAgentLoop(unittest.TestCase):
                     "agents/r1-chunk-ch0-base0-n2.json",
                     {
                         "agent_id": "r1-chunk-ch0-base0-n2",
-                        "stage": "review_agent",
+                        "stage": "review.verify",
+                        "inference": inference_snapshot(_config().llm, ("review.verify",)),
                         "status": "finished",
                         "turns": [],
                         "result": {"issues": [], "dismissed": []},
@@ -805,7 +813,8 @@ class TestReviewAgentLoop(unittest.TestCase):
                     "agents/r1-chunk-ch0-base0-n2.json",
                     {
                         "agent_id": "r1-chunk-ch0-base0-n2",
-                        "stage": "review_agent",
+                        "stage": "review.verify",
+                        "inference": inference_snapshot(_config().llm, ("review.verify",)),
                         "status": "fallback",
                         "fallback_reason": "malformed_json: broken",
                         "turns": [],
@@ -894,7 +903,8 @@ class TestReviewAgentLoop(unittest.TestCase):
                     "agents/r1-chunk-ch0-base0-n2.json",
                     {
                         "agent_id": "r1-chunk-ch0-base0-n2",
-                        "stage": "review_agent",
+                        "stage": "review.verify",
+                        "inference": inference_snapshot(_config().llm, ("review.verify",)),
                         "status": "running",
                         "turns": [evidence_turn],
                     },
@@ -905,7 +915,7 @@ class TestReviewAgentLoop(unittest.TestCase):
                     calls.append(messages)
                     assert (
                         messages[-1]["role"] == "user"
-                        and "【证据工具返回 JSON】" in messages[-1]["content"]
+                        and "[Evidence tool results (JSON)]" in messages[-1]["content"]
                     )
                     return json.dumps(
                         {
@@ -973,7 +983,7 @@ class TestReviewAgentLoop(unittest.TestCase):
                 "review_agent_resumed",
                 [event["event"] for event in events],
             )
-            # 已缓存证据轮不重复发事件（该事件属于上次进程的审计流）
+            # Cached evidence rounds must not duplicate events already emitted by the earlier process.
             self.assertEqual(
                 sum(1 for e in events if e["event"] == "review_evidence_supplied"),
                 0,
@@ -1002,7 +1012,8 @@ class TestReviewAgentLoop(unittest.TestCase):
                     "agents/r1-chunk-ch0-base0-n2.json",
                     {
                         "agent_id": "r1-chunk-ch0-base0-n2",
-                        "stage": "review_agent",
+                        "stage": "review.verify",
+                        "inference": inference_snapshot(_config().llm, ("review.verify",)),
                         "status": "running",
                         "turns": [
                             {
@@ -1072,7 +1083,8 @@ class TestReviewAgentLoop(unittest.TestCase):
                     "agents/r1-chunk-ch0-base0-n2.json",
                     {
                         "agent_id": "r1-chunk-ch0-base0-n2",
-                        "stage": "review_agent",
+                        "stage": "review.verify",
+                        "inference": inference_snapshot(_config().llm, ("review.verify",)),
                         "status": "running",
                         "turns": [
                             {
@@ -1127,7 +1139,7 @@ class TestReviewAgentLoop(unittest.TestCase):
                     ],
                     review_round=1,
                 )
-            self.assertEqual(len(calls), 1)  # 仅 final turn 一次调用
+            self.assertEqual(len(calls), 1)  # Only the final turn makes a call.
             self.assertEqual(outcome.issues[0]["candidate_id"], "r1-ch0-base0-candidate0")
             with debug.round_scope(1):
                 saved = debug.load_json("agents/r1-chunk-ch0-base0-n2.json")
@@ -1138,7 +1150,9 @@ class TestReviewAgentLoop(unittest.TestCase):
             self.assertIn("evidence_results", saved["turns"][0])
 
     def test_run_resumes_with_reduced_evidence_rounds_still_finalizes(self):
-        """新配置 max_evidence_rounds 低于已缓存证据轮数时，恢复仍须发出 final 调用。"""
+        """A reduced evidence-round limit must still allow a final call after cached rounds are
+        replayed.
+        """
         with tempfile.TemporaryDirectory() as directory:
             debug = ReviewRunStore(directory)
             with debug.round_scope(1):
@@ -1183,7 +1197,8 @@ class TestReviewAgentLoop(unittest.TestCase):
                     "agents/r1-chunk-ch0-base0-n2.json",
                     {
                         "agent_id": "r1-chunk-ch0-base0-n2",
-                        "stage": "review_agent",
+                        "stage": "review.verify",
+                        "inference": inference_snapshot(_config().llm, ("review.verify",)),
                         "status": "running",
                         "turns": turns,
                     },
@@ -1209,7 +1224,9 @@ class TestReviewAgentLoop(unittest.TestCase):
                     )
 
                 config = _config()
-                config.pipeline.review_agent_max_evidence_rounds = 1  # 低于已缓存的两轮
+                config.pipeline.review_agent_max_evidence_rounds = (
+                    1  # Set a limit below the two cached rounds.
+                )
                 loop = ReviewAgentLoop(FakeClient(handler=handler), config, self._evidence(), debug)
                 outcome = loop.review_chunk(
                     chapter=0,
@@ -1226,8 +1243,8 @@ class TestReviewAgentLoop(unittest.TestCase):
                     ],
                     review_round=1,
                 )
-            # 修复前：空 turn 范围 → 0 调用 + trace 永远 running
-            self.assertEqual(len(calls), 1)  # 必须发出 final 调用
+            # Previously, an empty turn range made no calls and left the trace running forever.
+            self.assertEqual(len(calls), 1)  # A final call is required.
             self.assertEqual(outcome.issues[0]["candidate_id"], "r1-ch0-base0-candidate0")
             self.assertFalse(outcome.issues[0].get("agent_fallback"))
             with debug.round_scope(1):
@@ -1238,7 +1255,7 @@ class TestReviewAgentLoop(unittest.TestCase):
             self.assertEqual(len(saved["turns"]), 3)
 
     def test_run_resumes_requesting_turn_without_data(self):
-        """中断发生在调用进行中：缓存 turn 只有 requesting 状态、无任何数据。"""
+        """Resume an interrupted call whose cached turn is requesting with no response data."""
         with tempfile.TemporaryDirectory() as directory:
             debug = ReviewRunStore(directory)
             with debug.round_scope(1):
@@ -1246,7 +1263,8 @@ class TestReviewAgentLoop(unittest.TestCase):
                     "agents/r1-chunk-ch0-base0-n2.json",
                     {
                         "agent_id": "r1-chunk-ch0-base0-n2",
-                        "stage": "review_agent",
+                        "stage": "review.verify",
+                        "inference": inference_snapshot(_config().llm, ("review.verify",)),
                         "status": "running",
                         "turns": [
                             {
@@ -1298,7 +1316,7 @@ class TestReviewAgentLoop(unittest.TestCase):
                     ],
                     review_round=1,
                 )
-            # requesting 空 turn 必须原地重入并发出调用（start_turn=1，不 +1）
+            # Reenter the empty requesting turn in place instead of advancing to the next turn.
             self.assertEqual(len(calls), 1)
             self.assertEqual(outcome.issues[0]["candidate_id"], "r1-ch0-base0-candidate0")
             with debug.round_scope(1):
@@ -1723,7 +1741,7 @@ class TestReviewConflictArbiter(unittest.TestCase):
     def test_conflicting_cross_chunk_claims_are_arbitrated(self):
         evidence = BookEvidenceIndex(
             [_chapter(0, [("Ann.", "安。"), ("Ann.", "安妮。")])],
-            [GlossaryTerm(source="Ann", target="安", type="人物")],
+            [GlossaryTerm(source="Ann", target="安", type="person")],
             {},
         )
         issues = normalize_review_issues(
@@ -1789,10 +1807,10 @@ class TestReviewConflictArbiter(unittest.TestCase):
         self.assertEqual(result["rejected_issue_ids"], [issue_ids[1]])
 
     def test_all_issues_with_the_winning_value_are_kept(self):
-        """仲裁只选值，系统必须保留提出同一胜出值的全部问题。"""
+        """Arbitration chooses a value; retain every issue supporting the winning value."""
         evidence = BookEvidenceIndex(
             [_chapter(0, [("Ann A.", "安。"), ("Ann B.", "安妮。"), ("Ann C.", "安。")])],
-            [GlossaryTerm(source="Ann", target="安", type="人物")],
+            [GlossaryTerm(source="Ann", target="安", type="person")],
             {},
         )
         issues = normalize_review_issues(
@@ -1895,10 +1913,12 @@ class TestReviewConflictArbiter(unittest.TestCase):
         self.assertEqual(result["recommended_value"], "NASA")
 
     def test_arbiter_must_requery_inherited_evidence_before_citing_it(self):
-        """块级 Agent 的 opaque ref 不等于仲裁器已经看过该证据。"""
+        """A block agent's opaque reference does not establish that the arbiter has seen its
+        evidence.
+        """
         evidence = BookEvidenceIndex(
             [_chapter(0, [("Ann.", "安。"), ("Ann.", "安妮。")])],
-            [GlossaryTerm(source="Ann", target="安", type="人物")],
+            [GlossaryTerm(source="Ann", target="安", type="person")],
             {},
         )
         glossary_result = evidence.glossary_term({"term": "Ann"})
@@ -2041,7 +2061,7 @@ class TestReviewConflictArbiter(unittest.TestCase):
 
         self.assertEqual(client.calls, [])
         self.assertEqual(result["status"], "unresolved")
-        self.assertIn("大小上限", result["reason"])
+        self.assertIn("size limit", result["reason"])
 
     def test_arbitration_is_applied_to_the_final_issue_view(self):
         issues = [
@@ -2068,9 +2088,15 @@ class TestReviewConflictArbiter(unittest.TestCase):
         )
         self.assertEqual([issue["issue_id"] for issue in rejected], ["review-00002"])
         self.assertEqual(final[0]["arbitration"]["recommended_value"], "安")
-        self.assertEqual(final[1]["detail"], "该处相关表达需按终局仲裁统一为「安」。")
+        self.assertEqual(
+            final[1]["detail"],
+            "Final arbitration requires the expression here to use “安” consistently.",
+        )
         self.assertEqual(final[1]["pre_arbitration_detail"], "改写")
-        self.assertEqual(final[1]["suggestion"], "按终局仲裁将相关表达统一为「安」。")
+        self.assertEqual(
+            final[1]["suggestion"],
+            "Use “安” consistently for this expression as determined by final arbitration.",
+        )
         self.assertEqual(final[1]["pre_arbitration_suggestion"], "统一为安妮")
 
     def test_unresolved_arbitration_keeps_every_issue(self):
@@ -2100,7 +2126,7 @@ class TestReviewConflictArbiter(unittest.TestCase):
     def test_unproposed_suggested_value_falls_back_to_unresolved(self):
         evidence = BookEvidenceIndex(
             [_chapter(0, [("Ann.", "安。"), ("Ann.", "安妮。")])],
-            [GlossaryTerm(source="Ann", target="安", type="人物")],
+            [GlossaryTerm(source="Ann", target="安", type="person")],
             {},
         )
         issues = normalize_review_issues(
