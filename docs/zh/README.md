@@ -1,21 +1,28 @@
 <div align="center">
 
-# 📚 文译
+<h1>
+  <img src="../images/wenyi-emblem.png" alt="" width="280">
+  <br>
+  <img src="../images/wenyi-wordmark-zh.svg" alt="文译" width="180" height="54">
+</h1>
 
-**一条命令，从 EPUB 到可读的中文译本。**
+**让故事跨越语言。**
 
-全书预扫 · 实时术语闭环 · 多阶段审校
+面向书籍与长篇文字，在全书语境中完成翻译。
 
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://www.python.org/)
-[![Tests](https://img.shields.io/github/actions/workflow/status/BigDawnGhost/wenyi/tests.yml?style=flat-square)](https://github.com/BigDawnGhost/wenyi/actions/workflows/tests.yml)
-[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](../../LICENSE)
-[![Stars](https://img.shields.io/github/stars/BigDawnGhost/wenyi?style=flat-square)](https://github.com/BigDawnGhost/wenyi/stargazers)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/sM3AQcF5D2)
-<a href="https://hellogithub.com/repository/BigDawnGhost/wenyi" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=648c0ab0997c42479027e360f604fa23&claim_uid=EkLpt1FHIqRrade&theme=small" alt="Featured｜HelloGitHub" /></a>
+全书理解 · 术语一致 · 取证式审校
+
+[![Python](https://img.shields.io/badge/python-3.10%2B-D4B56A?style=flat-square&labelColor=00263D)](https://www.python.org/)
+[![Tests](https://img.shields.io/github/actions/workflow/status/BigDawnGhost/wenyi/tests.yml?style=flat-square&labelColor=00263D)](https://github.com/BigDawnGhost/wenyi/actions/workflows/tests.yml)
+[![License](https://img.shields.io/badge/license-MIT-D4B56A?style=flat-square&labelColor=00263D)](../../LICENSE)
+[![Stars](https://img.shields.io/github/stars/BigDawnGhost/wenyi?style=flat-square&labelColor=00263D&color=D4B56A)](https://github.com/BigDawnGhost/wenyi/stargazers)
+[![Discord](https://img.shields.io/badge/Discord-join-D4B56A?style=flat-square&labelColor=00263D&logo=discord&logoColor=white)](https://discord.gg/sM3AQcF5D2)
+
+[快速开始](#快速开始) · [语言支持](usage.md#多语言互译实验性) · [使用文档](#文档)
 
 [English](../../README.md) | **简体中文**
 
-<img src="../images/bilingual-preview.png" alt="文译双语对照版阅读效果" width="720">
+<a href="https://hellogithub.com/repository/BigDawnGhost/wenyi" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=648c0ab0997c42479027e360f604fa23&claim_uid=EkLpt1FHIqRrade&theme=small" alt="Featured｜HelloGitHub" /></a>
 
 </div>
 
@@ -47,6 +54,12 @@
 
 文译为**长文本**设计 —— 长篇小说、社科专著、纪实文学……
 
+<p align="center">
+  <img src="../images/bilingual-preview.png" alt="文译双语对照版阅读效果" width="720">
+  <br>
+  <sub>双语阅读示例：译文与淡化显示的原文相互对照。</sub>
+</p>
+
 ---
 
 ## 核心特性
@@ -55,7 +68,7 @@
 - **实时术语闭环** — 翻译中自动提取人名、地名、术语和固定表达；检测译法冲突并提示人工裁决
 - **多阶段质量保证** — 可选润色（强档模型重译）和取证式全书 AI 审校
 - **断点续跑** — 批次级检查点、章节状态记录和原子状态写入；任意中断后重新执行同一命令即可续跑
-- **多种 LLM 支持** — DeepSeek、OpenAI、OpenRouter、OrcaRouter、Google Gemini、Ollama、vLLM，以及通用 OpenAI 兼容端点
+- **多种 LLM 支持** — DeepSeek、OpenAI、OpenRouter、OrcaRouter、Google Gemini、Ollama、vLLM，以及通用 OpenAI 兼容端点；保留三档位入口，支持按操作独立选模型、混用连接与共享限额。配置见[模型路由](configuration.md#模型与操作路由)。
 - **原生 EPUB 回填** — 基于原书 XHTML 模板替换译文片段，尽量保留原书样式、图片、目录和锚点
 - **双语对照输出** — 可选原文译文对照版，原文视觉淡化，支持深色模式
 
@@ -90,6 +103,9 @@ uv run trans-novel translate book.epub
 ```
 
 解析书籍、检测源语言、预扫全书、翻译所有章节、组装输出，一步完成。默认在 `output/` 目录生成单语中文版 `book.zh.epub`。
+
+多语言互译（实验性）：通过 `language.source` / `language.target` 选择方向，例如 `zh → en`、`en → ja`。运行 `uv run trans-novel languages` 查看列表；不同目标使用独立状态和输出文件名。详见[使用指南](usage.md#多语言互译实验性)。
+
 
 ### 分步工作流
 
@@ -141,7 +157,7 @@ uv run trans-novel review book.epub --autofix
 后，会先应用折叠后的 changes，再让剩余 issues 基于更新译文复用现有 Review Agent Loop
 和 Fixer。只有正式段落的 `target`
 会被覆盖，完整历史保存在 Review 目录的 `autofix/index.json`；统一结果仍写入
-`state/<书名>/reviews/review-<时间戳>/result.json`。
+`state/<书名>/targets/<目标语言>/reviews/review-<时间戳>/result.json`。
 
 ---
 
@@ -152,11 +168,11 @@ uv run trans-novel review book.epub --autofix
 | EPUB、FB2、TXT、Markdown、HTML、PDF、DOCX | EPUB（单语 / 双语）、TXT、HTML、Markdown、DOCX |
 | SRT（影视字幕） | 单语 `.zh.srt`，可选双语 `.zh-bi.srt` |
 
-- PDF 输入默认走 BabelDOC bridge。扫描件可改用 MinerU，首次转换需 `MINERU_API_KEY`，生成的 HTML 会缓存复用。
+- PDF 输入默认走 MinerU，首次转换需 `MINERU_API_KEY`，生成的 HTML 会缓存复用。可选 BabelDOC bridge 用于尽量保留版式。
 - EPUB 输出尽量保留原书样式、图片、目录和锚点，竖排转为横排以适配中文阅读。
 - 源语言默认由模型自动识别，也可在 `config.yaml` 中固定为 ISO 639-1 语言代码。
-- `.srt` 由 `translate` 自动识别，走轻量并发路径（无术语库、润色与全书审校）。状态在 `state/srt/<slug>/`，成品默认写到源文件旁的 `output/`。详见[使用指南](usage.md#srt-字幕)。
-- `.docx` 走完整书籍管线：尽量保留标题导航、简易表格、列表与常见字符/段落样式；已译中文用宋体。默认导出 `.zh.docx`（可用 `--format` 覆盖）。详见[使用指南](usage.md#docx-word)。
+- `.srt` 由 `translate` 自动识别，走轻量并发路径（无术语库、润色与全书审校）。状态在 `state/srt/<slug>/targets/<目标语言>/`，成品默认写到源文件旁的 `output/`。详见[使用指南](usage.md#srt-字幕)。
+- `.docx` 走完整书籍管线：尽量保留标题导航、简易表格、列表与常见字符/段落样式；已译中文用宋体。默认导出 `.zh.docx`（可用 `--format` 覆盖）。详见[使用指南](usage.md#docxword)。
 
 ---
 
@@ -212,7 +228,7 @@ Review Fixer 同样会获得风格指南、全书概览、本章梗概、相关�
 
 ## 憧憬与不足
 
-本项目为作者个人兴趣所开发，旨在为长文本书籍的译介做出一份微薄的努力。现阶段翻译质量仍受限于所选模型的能力：润色和审校阶段会显著增加 token 消耗，开启影子修订后还可能执行多次全书审校与额外 Fixer 调用；极长的书籍可能产生较大的状态目录，PDF 输入默认依赖 BabelDOC bridge，扫描件才走 MinerU。SRT 字幕走轻量并发路径，不建术语库、不做润色与全书审校，不同目录下同名文件也可能共用同一 `state/srt/<slug>/`。当前译文管线主要针对简体中文输出优化，不支持其他目标语言。
+本项目为作者个人兴趣所开发，旨在为长文本书籍的译介做出一份微薄的努力。现阶段翻译质量仍受限于所选模型的能力：润色和审校阶段会显著增加 token 消耗，开启影子修订后还可能执行多次全书审校与额外 Fixer 调用；极长的书籍可能产生较大的状态目录，PDF 输入默认依赖 MinerU 外部服务（首次转换需 API Key），可选 BabelDOC bridge 保留版式。SRT 字幕走轻量并发路径，不建术语库、不做润色与全书审校，不同目录下同名文件也可能共用同一 `state/srt/<slug>/targets/<目标语言>/`。多语言互译现为实验性功能，支持中、英、日、韩、法、德、西、意、葡、俄及部分变体；真实模型长篇质量仍待验证，CLI 和提示词指令统一使用英语，模型生成的说明性元数据使用翻译目标语言。
 
 未来想让翻译在够准确的前提下更加顺畅，努力从可读向好读迈进。如果你发现了问题，欢迎提交 [Issue](https://github.com/BigDawnGhost/wenyi/issues)；如果你有想法，欢迎在[讨论区](https://github.com/BigDawnGhost/wenyi/discussions)提出；如果你有一定的编程能力，欢迎提交 PR，让这个项目变得更好。👏
 

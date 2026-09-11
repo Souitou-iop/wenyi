@@ -1,21 +1,28 @@
 <div align="center">
 
-# 📚 Wenyi
+<h1>
+  <img src="docs/images/wenyi-emblem.png" alt="" width="280">
+  <br>
+  <img src="docs/images/wenyi-wordmark-en.svg" alt="Wenyi" width="180" height="54">
+</h1>
 
-**One command, from EPUB to a readable Chinese translation.**
+**Carry stories across languages.**
 
-Whole-book analysis · Real-time glossary · Multi-stage review
+Translation for books and long-form writing, with the whole work in view.
 
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://www.python.org/)
-[![Tests](https://img.shields.io/github/actions/workflow/status/BigDawnGhost/wenyi/tests.yml?style=flat-square)](https://github.com/BigDawnGhost/wenyi/actions/workflows/tests.yml)
-[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/BigDawnGhost/wenyi?style=flat-square)](https://github.com/BigDawnGhost/wenyi/stargazers)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/sM3AQcF5D2)
-<a href="https://hellogithub.com/repository/BigDawnGhost/wenyi" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=648c0ab0997c42479027e360f604fa23&claim_uid=EkLpt1FHIqRrade&theme=small" alt="Featured｜HelloGitHub" /></a>
+Whole-book understanding · Consistent terminology · Evidence-based review
+
+[![Python](https://img.shields.io/badge/python-3.10%2B-D4B56A?style=flat-square&labelColor=00263D)](https://www.python.org/)
+[![Tests](https://img.shields.io/github/actions/workflow/status/BigDawnGhost/wenyi/tests.yml?style=flat-square&labelColor=00263D)](https://github.com/BigDawnGhost/wenyi/actions/workflows/tests.yml)
+[![License](https://img.shields.io/badge/license-MIT-D4B56A?style=flat-square&labelColor=00263D)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/BigDawnGhost/wenyi?style=flat-square&labelColor=00263D&color=D4B56A)](https://github.com/BigDawnGhost/wenyi/stargazers)
+[![Discord](https://img.shields.io/badge/Discord-join-D4B56A?style=flat-square&labelColor=00263D&logo=discord&logoColor=white)](https://discord.gg/sM3AQcF5D2)
+
+[Quick start](#quick-start) · [Language support](docs/usage.md#multilingual-translation-experimental) · [Documentation](#documentation)
 
 **English** | [简体中文](docs/zh/README.md)
 
-<img src="docs/images/bilingual-preview.png" alt="Wenyi bilingual EPUB preview" width="720">
+<a href="https://hellogithub.com/repository/BigDawnGhost/wenyi" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=648c0ab0997c42479027e360f604fa23&claim_uid=EkLpt1FHIqRrade&theme=small" alt="Featured｜HelloGitHub" /></a>
 
 </div>
 
@@ -47,6 +54,12 @@ Whole-book analysis · Real-time glossary · Multi-stage review
 
 Wenyi is designed for **long-form texts** — novels, social-science monographs, narrative nonfiction, and more.
 
+<p align="center">
+  <img src="docs/images/bilingual-preview.png" alt="Wenyi bilingual EPUB preview" width="720">
+  <br>
+  <sub>A bilingual reading sample: translation alongside visually subdued source text.</sub>
+</p>
+
 ---
 
 ## Core features
@@ -55,7 +68,7 @@ Wenyi is designed for **long-form texts** — novels, social-science monographs,
 - **Real-time glossary** — extracts proper names, terms, and recurring expressions as translation progresses; detects conflicting translations and surfaces them for resolution
 - **Multi-stage quality** — optional polishing (strong model) and an evidence-driven whole-book AI review
 - **Resumability** — batch-level checkpoints, chapter status tracking, and atomic state writes; interrupt at any point and resume with the same command
-- **Multiple LLM providers** — DeepSeek, OpenAI, OpenRouter, OrcaRouter, Google Gemini, Ollama, vLLM, and generic OpenAI-compatible endpoints
+- **Multiple LLM providers** — DeepSeek, OpenAI, OpenRouter, OrcaRouter, Google Gemini, Ollama, vLLM, and generic OpenAI-compatible endpoints; keep three convenient tiers or select models per operation, mix connections, and share request limits. See [model routing](docs/configuration.md#models-and-operation-routing).
 - **Native EPUB preservation** — writes translated text back into the original XHTML templates and attempts to preserve styles, images, TOC, and anchors
 - **Bilingual output** — optional source-and-translation edition with visually subdued source text, including dark mode support
 
@@ -90,6 +103,8 @@ uv run trans-novel translate book.epub
 ```
 
 This parses the book, detects the source language, prescans for understanding, translates all chapters, and assembles the output. The monolingual Chinese EPUB is written to `output/book.zh.epub` by default.
+
+Multilingual translation (experimental): select a direction using `language.source` / `language.target`, such as `zh → en` or `en → ja`. Run `uv run trans-novel languages` for the list. Targets have separate state and output names. See the [usage guide](docs/usage.md#multilingual-translation-experimental).
 
 ### Step-by-step workflow
 
@@ -146,7 +161,7 @@ read-only. With Autofix, folded changes are applied first and remaining
 issues reuse the existing Review Agent Loop and Fixer against that updated text.
 Only formal segment `target` values are replaced; full history stays in the Review
 directory's `autofix/index.json`. The consolidated result, run usage, events, and
-internal records are written under `state/<book>/reviews/review-<timestamp>/`.
+internal records are written under `state/<book>/targets/<target-language>/reviews/review-<timestamp>/`.
 
 ---
 
@@ -157,10 +172,10 @@ internal records are written under `state/<book>/reviews/review-<timestamp>/`.
 | EPUB, FB2, TXT, Markdown, HTML, PDF, DOCX | EPUB (monolingual / bilingual), TXT, HTML, Markdown, DOCX |
 | SRT (movie / series subtitles) | `.zh.srt` (monolingual) and optional `.zh-bi.srt` (bilingual) |
 
-- PDF input defaults to the BabelDOC bridge. MinerU conversion is optional for scanned pages and requires `MINERU_API_KEY`; that HTML is cached and reused.
+- PDF input defaults to MinerU and requires `MINERU_API_KEY` for the initial conversion; the resulting HTML is cached and reused. The BabelDOC bridge is optional for layout-preserving PDFs.
 - EPUB output attempts to preserve the original book's styles, images, table of contents, and anchors. Vertical layout is converted to horizontal for Chinese reading.
 - Source language is auto-detected by default, or fixed to an ISO 639-1 code in `config.yaml`.
-- `.srt` input is auto-detected by `translate`. It uses a light concurrent path (no glossary, polish, or whole-book review). State lives under `state/srt/<slug>/`; outputs default to the source file's `output/` directory. Details: [Usage guide](docs/usage.md#srt-subtitles).
+- `.srt` input is auto-detected by `translate`. It uses a light concurrent path (no glossary, polish, or whole-book review). State lives under `state/srt/<slug>/targets/<target-language>/`; outputs default to the source file's `output/` directory. Details: [Usage guide](docs/usage.md#srt-subtitles).
 - `.docx` input uses the full book pipeline. Headings, simple tables, lists, and common run/paragraph styles are preserved where possible; translated Chinese uses Song (宋体). Default export is `.zh.docx` (override with `--format`). Details: [Usage guide](docs/usage.md#docx-word).
 
 ---
@@ -218,10 +233,10 @@ Translated state directories for public-domain books may be shared through [weny
 
 ## Limitations
 
-- The translation pipeline is optimized for Simplified Chinese output; other target languages are not supported.
+- Multilingual translation is experimental: Chinese, English, Japanese, Korean, French, German, Spanish, Italian, Portuguese, Russian, and selected variants have built-in profiles. Real-model long-form quality still needs evaluation; the CLI and prompt instructions use English, while generated descriptive metadata follows the translation target.
 - Polishing and final review are the most expensive stages. Shadow fixing may
   trigger multiple full-book review passes and additional Fixer calls.
-- PDF input defaults to the BabelDOC bridge. MinerU is optional for scanned pages and requires an API key.
+- PDF input defaults to MinerU and requires an API key for the initial conversion. The BabelDOC bridge is optional for layout-preserving PDFs.
 - SRT translation is a light concurrent path: no glossary, polishing, or whole-book review, and slug collision is possible for identically named files in different folders.
 - Translation quality is bounded by the capabilities of the chosen LLM model.
 - Very long books may produce large state directories; storage requirements grow with book length.

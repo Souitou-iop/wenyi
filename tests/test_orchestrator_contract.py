@@ -1,21 +1,21 @@
-"""编排器 façade 契约测试：用 spy services 固定步骤选择、顺序、锁作用域与透传语义。
-
-这里用真实 Orchestrator + 替换后的私有服务（spy），不涉及任何领域 I/O，
-专门验证纯流程控制层的路由与组合行为。
+"""Facade contract tests using spy services for routing, ordering, locks and argument
+forwarding.
+Use the real Orchestrator with substituted private services and no domain I/O, testing
+workflow composition only.
 """
 
 from __future__ import annotations
 
 import unittest
 from contextlib import contextmanager
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, patch
 
 from trans_novel.config import Config
 from trans_novel.pipeline.orchestrator import Orchestrator
 
 
 class _RecordingStore:
-    """记录锁获取范围与运行级事件的假状态库。"""
+    """Fake state store recording lock scopes and run-level events."""
 
     def __init__(self):
         self.lock_events: list[str] = []
@@ -44,30 +44,39 @@ class _RecordingStore:
     def load_usage(self):
         return None
 
+    def recover_usage(self):
+        """No pending ledger transactions exist in the facade-only fixture."""
+
     def save_usage(self, data):
         self.events.append(("usage_saved", {"usage": data}))
 
 
 class TestOrchestratorContract(unittest.TestCase):
-    """spy services 下的编排契约。"""
+    """Orchestration contracts with spy services."""
 
-    def _orchestrator(self, review=False, review_autofix=False):
+    def _orchestrator(self, review: bool = False, review_autofix: bool = False) -> Orchestrator:
         cfg = Config.from_dict(
             {
-                "llm": {"provider": "fake"},
+                "llm": {"preset": "fake"},
                 "pipeline": {"review": review, "review_autofix": review_autofix},
             }
         )
         orch = Orchestrator(cfg)
-        orch._preparation = MagicMock()
-        orch._translation = MagicMock()
-        orch._review = MagicMock()
-        orch._review_autofix = MagicMock()
-        orch._review_autofix.resume_pending.return_value = None
-        orch._report = MagicMock()
-        orch._assembly = MagicMock()
-        # 收尾流程需要可用的术语库作用域（spy 版）。
-        orch._report.glossary_scope.side_effect = lambda store, needed: self._glossary_scope()
+        self.preparation = MagicMock(spec=type(orch._preparation))
+        orch._preparation = self.preparation
+        self.translation = MagicMock(spec=type(orch._translation))
+        orch._translation = self.translation
+        self.review = MagicMock(spec=type(orch._review))
+        orch._review = self.review
+        self.review_autofix = MagicMock(spec=type(orch._review_autofix))
+        orch._review_autofix = self.review_autofix
+        self.review_autofix.resume_pending.return_value = None
+        self.report = MagicMock(spec=type(orch._report))
+        orch._report = self.report
+        self.assembly = MagicMock(spec=type(orch._assembly))
+        orch._assembly = self.assembly
+        # Finalization requires a usable glossary scope supplied by the spy.
+        self.report.glossary_scope.side_effect = lambda store, needed: self._glossary_scope()
         return orch
 
     @staticmethod
@@ -79,22 +88,24 @@ class TestOrchestratorContract(unittest.TestCase):
         return {"chapters": [{"index": 0}, {"index": 1}]}
 
     def test_run_routes_prepare_then_translation_under_lock(self):
-        """run：准备 → 语言恢复 → 概览 → 书级锁内翻译，参数与 progress 原样透传。"""
+        """Prepare, restore language, build synopsis and translate under the book lock with
+        unchanged arguments.
+        """
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.prepare.return_value = store
-        orch._preparation.activate.return_value = self._manifest()
-        orch._preparation.ensure_understanding.return_value = "全书概览"
-        orch._translation.run.return_value = store
+        self.preparation.prepare.return_value = store
+        self.preparation.activate.return_value = self._manifest()
+        self.preparation.ensure_understanding.return_value = "全书概览"
+        self.translation.run.return_value = store
         progress = Mock()
 
         result = orch.run("novel.txt", only_chapter=1, progress=progress)
 
         self.assertIs(result, store)
-        orch._preparation.prepare.assert_called_once_with("novel.txt", progress=progress)
-        orch._preparation.activate.assert_called_once_with(store)
-        orch._preparation.ensure_understanding.assert_called_once_with(store, progress=progress)
-        orch._translation.run.assert_called_once_with(
+        self.preparation.prepare.assert_called_once_with("novel.txt", progress=progress)
+        self.preparation.activate.assert_called_once_with(store)
+        self.preparation.ensure_understanding.assert_called_once_with(store, progress=progress)
+        self.translation.run.assert_called_once_with(
             store,
             book_synopsis="全书概览",
             only_chapter=1,
@@ -103,51 +114,55 @@ class TestOrchestratorContract(unittest.TestCase):
         self.assertEqual(store.lock_events, ["lock:enter", "lock:exit"])
 
     def test_run_rejects_unknown_chapter_before_translation(self):
-        """不存在的章节编号在校验处短路，翻译服务不被调用，异常原样传播。"""
+        """Reject unknown chapter indices before translation and propagate the validation
+        error.
+        """
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.prepare.return_value = store
-        orch._preparation.activate.return_value = {"chapters": [{"index": 0}]}
+        self.preparation.prepare.return_value = store
+        self.preparation.activate.return_value = {"chapters": [{"index": 0}]}
 
-        with self.assertRaisesRegex(ValueError, "章节编号 7 不存在"):
+        with self.assertRaisesRegex(ValueError, "Chapter index 7 does not exist"):
             orch.run("novel.txt", only_chapter=7)
 
-        orch._preparation.ensure_understanding.assert_not_called()
-        orch._translation.run.assert_not_called()
+        self.preparation.ensure_understanding.assert_not_called()
+        self.translation.run.assert_not_called()
 
     def test_run_propagates_translation_exception_and_short_circuits(self):
-        """翻译异常后阶段短路：概览已生成，但异常原样抛出。"""
+        """Stop subsequent stages on translation failure while preserving the original
+        exception.
+        """
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.prepare.return_value = store
-        orch._preparation.activate.return_value = self._manifest()
-        orch._preparation.ensure_understanding.return_value = ""
+        self.preparation.prepare.return_value = store
+        self.preparation.activate.return_value = self._manifest()
+        self.preparation.ensure_understanding.return_value = ""
         boom = RuntimeError("翻译失败")
 
-        orch._translation.run.side_effect = boom
+        self.translation.run.side_effect = boom
         with self.assertRaises(RuntimeError) as ctx:
             orch.run("novel.txt")
         self.assertIs(ctx.exception, boom)
-        orch._translation.run.assert_called_once()
+        self.translation.run.assert_called_once()
 
     def test_run_review_uses_existing_state_fast_path_under_lock(self):
-        """仅审校：locate_existing 快路径 + 书级锁内 run_session，不碰报告/导出。"""
+        """Review-only uses fast state lookup and a locked session without reporting or export."""
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.locate_existing.return_value = store
-        orch._review.session_terms.return_value = ["术语"]
-        orch._review.run_session.return_value = Mock(
+        self.preparation.locate_existing.return_value = store
+        self.review.session_terms.return_value = ["术语"]
+        self.review.run_session.return_value = Mock(
             issues=[{"x": 1}], changes=[], result={"r": 1}, run_dir="reviews/1"
         )
         progress = Mock()
 
         result = orch.run_review("novel.txt", progress=progress)
 
-        orch._preparation.locate_existing.assert_called_once_with("novel.txt", progress=progress)
-        orch._review.session_terms.assert_called_once_with(store)
-        orch._review.run_session.assert_called_once_with(store, ["术语"], progress=progress)
-        orch._review_autofix.resume_pending.assert_called_once_with(store, progress=progress)
-        orch._review_autofix.run.assert_not_called()
+        self.preparation.locate_existing.assert_called_once_with("novel.txt", progress=progress)
+        self.review.session_terms.assert_called_once_with(store)
+        self.review.run_session.assert_called_once_with(store, ["术语"], progress=progress)
+        self.review_autofix.resume_pending.assert_called_once_with(store, progress=progress)
+        self.review_autofix.run.assert_not_called()
         self.assertEqual(
             result,
             {
@@ -159,33 +174,33 @@ class TestOrchestratorContract(unittest.TestCase):
             },
         )
         self.assertEqual(store.lock_events, ["lock:enter", "lock:exit"])
-        orch._report.build_and_save.assert_not_called()
-        orch._assembly.assemble_live.assert_not_called()
+        self.report.build_and_save.assert_not_called()
+        self.assembly.assemble_live.assert_not_called()
 
     def test_run_steps_review_only_routes_to_review_fast_path(self):
-        """run_steps({"review"}) 与独立 run_review 走同一快路径。"""
+        """Review-only run_steps uses the same fast path as standalone run_review."""
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.locate_existing.return_value = store
-        orch._review.session_terms.return_value = []
-        orch._review.run_session.return_value = Mock(
+        self.preparation.locate_existing.return_value = store
+        self.review.session_terms.return_value = []
+        self.review.run_session.return_value = Mock(
             issues=[], changes=[], result={"r": 1}, run_dir="reviews/2"
         )
 
         result = orch.run_steps("novel.txt", {"review"})
 
-        orch._preparation.prepare.assert_not_called()
-        orch._translation.run.assert_not_called()
-        orch._review.run_session.assert_called_once()
+        self.preparation.prepare.assert_not_called()
+        self.translation.run.assert_not_called()
+        self.review.run_session.assert_called_once()
         self.assertEqual(result["review_result"], {"r": 1})
         self.assertIsNone(result["report"])
 
     def test_review_autofix_runs_after_read_only_review_when_enabled(self):
-        """Autofix 只在 Review 结果产生后发布，并把新 outcome 返回上层。"""
+        """Publish autofix only after review produces a result, returning the new outcome."""
         orch = self._orchestrator(review_autofix=True)
         store = _RecordingStore()
-        orch._preparation.locate_existing.return_value = store
-        orch._review.session_terms.return_value = ["术语"]
+        self.preparation.locate_existing.return_value = store
+        self.review.session_terms.return_value = ["术语"]
         review_outcome = Mock(
             issues=[{"old": 1}],
             changes=[{"chapter": 0}],
@@ -198,12 +213,12 @@ class TestOrchestratorContract(unittest.TestCase):
             result={"phase": "autofix"},
             run_dir="reviews/3",
         )
-        orch._review.run_session.return_value = review_outcome
-        orch._review_autofix.run.return_value = fixed_outcome
+        self.review.run_session.return_value = review_outcome
+        self.review_autofix.run.return_value = fixed_outcome
 
         result = orch.run_review("novel.txt")
 
-        orch._review_autofix.run.assert_called_once_with(
+        self.review_autofix.run.assert_called_once_with(
             store,
             review_outcome,
             ["术语"],
@@ -212,11 +227,13 @@ class TestOrchestratorContract(unittest.TestCase):
         self.assertEqual(result["review_result"], {"phase": "autofix"})
 
     def test_run_assemble_uses_snapshot_fast_path_without_run_lock(self):
-        """仅导出：快照快路径，不获取书级锁，格式参数全部透传。"""
+        """Assembly-only uses the snapshot path without the book lock and forwards every format
+        option.
+        """
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.locate_existing.return_value = store
-        orch._assembly.assemble_snapshot.return_value = ["out.epub"]
+        self.preparation.locate_existing.return_value = store
+        self.assembly.assemble_snapshot.return_value = ["out.epub"]
         progress = Mock()
 
         result = orch.run_assemble(
@@ -227,8 +244,8 @@ class TestOrchestratorContract(unittest.TestCase):
             progress=progress,
         )
 
-        orch._preparation.locate_existing.assert_called_once_with("novel.txt", progress=progress)
-        orch._assembly.assemble_snapshot.assert_called_once_with(
+        self.preparation.locate_existing.assert_called_once_with("novel.txt", progress=progress)
+        self.assembly.assemble_snapshot.assert_called_once_with(
             store,
             input_path="novel.txt",
             progress=progress,
@@ -244,16 +261,16 @@ class TestOrchestratorContract(unittest.TestCase):
         self.assertIsNone(result["review_dir"])
 
     def test_run_steps_assemble_only_uses_snapshot_fast_path(self):
-        """run_steps({"assemble"}) 不等待翻译锁，也不调用 prepare。"""
+        """Assembly-only run_steps neither waits for translation nor calls prepare."""
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.locate_existing.return_value = store
-        orch._assembly.assemble_snapshot.return_value = ["out.epub"]
+        self.preparation.locate_existing.return_value = store
+        self.assembly.assemble_snapshot.return_value = ["out.epub"]
 
         result = orch.run_steps("novel.txt", {"assemble"}, out_format="txt", pdf_engine="fpdf2")
 
-        orch._preparation.prepare.assert_not_called()
-        orch._assembly.assemble_snapshot.assert_called_once_with(
+        self.preparation.prepare.assert_not_called()
+        self.assembly.assemble_snapshot.assert_called_once_with(
             store,
             input_path="novel.txt",
             progress=None,
@@ -264,45 +281,45 @@ class TestOrchestratorContract(unittest.TestCase):
         self.assertEqual(result["output"], "out.epub")
 
     def test_run_steps_report_only_uses_prepare_not_locate_existing(self):
-        """不含 translate 的组合仍走当前 prepare 行为（不擅自改成 require-existing）。"""
+        """Other combinations without translation retain current preparation behavior."""
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.prepare.return_value = store
-        orch._report.build_and_save.return_value = {"report": True}
+        self.preparation.prepare.return_value = store
+        self.report.build_and_save.return_value = {"report": True}
 
         result = orch.run_steps("novel.txt", {"report"})
 
-        orch._preparation.prepare.assert_called_once_with("novel.txt", progress=None)
-        orch._preparation.locate_existing.assert_not_called()
-        orch._report.build_and_save.assert_called_once()
+        self.preparation.prepare.assert_called_once_with("novel.txt", progress=None)
+        self.preparation.locate_existing.assert_not_called()
+        self.report.build_and_save.assert_called_once()
         self.assertEqual(result["report"], {"report": True})
         self.assertEqual(store.lock_events, ["lock:enter", "lock:exit"])
 
     def test_full_pipeline_steps_order_and_result_assembly(self):
-        """translate+report+assemble：先翻译，再重新进入锁内执行报告与实时导出。"""
+        """Translate first, then reacquire the lock for reporting and live export."""
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.prepare.return_value = store
-        orch._preparation.activate.return_value = self._manifest()
-        orch._preparation.ensure_understanding.return_value = ""
-        orch._translation.run.return_value = store
-        orch._report.build_and_save.return_value = {"report": True}
-        orch._assembly.assemble_live.return_value = ["out.epub"]
+        self.preparation.prepare.return_value = store
+        self.preparation.activate.return_value = self._manifest()
+        self.preparation.ensure_understanding.return_value = ""
+        self.translation.run.return_value = store
+        self.report.build_and_save.return_value = {"report": True}
+        self.assembly.assemble_live.return_value = ["out.epub"]
 
         calls: list[str] = []
-        orch._report.build_and_save.side_effect = lambda *a, **k: (
+        self.report.build_and_save.side_effect = lambda *a, **k: (
             calls.append("report") or {"report": True}
         )
-        orch._assembly.assemble_live.side_effect = lambda *a, **k: (
+        self.assembly.assemble_live.side_effect = lambda *a, **k: (
             calls.append("assemble") or ["out.epub"]
         )
-        orch._translation.run.side_effect = lambda *a, **k: calls.append("translate") or store
+        self.translation.run.side_effect = lambda *a, **k: calls.append("translate") or store
 
         result = orch.run_steps("novel.txt", {"translate", "report", "assemble"})
 
-        # 翻译完成后再进入锁内收尾；review 未请求时不触发审校。
+        # Reenter the lock for finalization after translation; skip review unless requested.
         self.assertEqual(calls, ["translate", "report", "assemble"])
-        orch._review.run_session.assert_not_called()
+        self.review.run_session.assert_not_called()
         self.assertEqual(
             store.lock_events,
             ["lock:enter", "lock:exit", "lock:enter", "lock:exit"],
@@ -322,31 +339,33 @@ class TestOrchestratorContract(unittest.TestCase):
         )
 
     def test_full_pipeline_with_review_includes_review_between_translate_and_report(self):
-        """含 translate 的组合先完成翻译，再重新进入锁内执行 Review、Report 和实时 Assemble。"""
+        """Combinations containing translation finish it before locked review, reporting and
+        live assembly.
+        """
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.prepare.return_value = store
-        orch._preparation.activate.return_value = self._manifest()
-        orch._preparation.ensure_understanding.return_value = ""
-        orch._translation.run.return_value = store
-        orch._review.run_session.return_value = Mock(
+        self.preparation.prepare.return_value = store
+        self.preparation.activate.return_value = self._manifest()
+        self.preparation.ensure_understanding.return_value = ""
+        self.translation.run.return_value = store
+        self.review.run_session.return_value = Mock(
             issues=[], changes=[], result={"r": 1}, run_dir="reviews/3"
         )
-        orch._report.build_and_save.return_value = {"report": True}
-        orch._assembly.assemble_live.return_value = ["out.epub"]
+        self.report.build_and_save.return_value = {"report": True}
+        self.assembly.assemble_live.return_value = ["out.epub"]
 
         calls: list[str] = []
-        orch._review.run_session.side_effect = lambda *a, **k: (
+        self.review.run_session.side_effect = lambda *a, **k: (
             calls.append("review")
             or Mock(issues=[], changes=[], result={"r": 1}, run_dir="reviews/3")
         )
-        orch._report.build_and_save.side_effect = lambda *a, **k: (
+        self.report.build_and_save.side_effect = lambda *a, **k: (
             calls.append("report") or {"report": True}
         )
-        orch._assembly.assemble_live.side_effect = lambda *a, **k: (
+        self.assembly.assemble_live.side_effect = lambda *a, **k: (
             calls.append("assemble") or ["out.epub"]
         )
-        orch._translation.run.side_effect = lambda *a, **k: calls.append("translate") or store
+        self.translation.run.side_effect = lambda *a, **k: calls.append("translate") or store
 
         result = orch.run_steps("novel.txt", {"translate", "review", "report", "assemble"})
 
@@ -355,42 +374,42 @@ class TestOrchestratorContract(unittest.TestCase):
         self.assertEqual(result["report"], {"report": True})
 
     def test_review_failure_short_circuits_report_and_assemble(self):
-        """Review 异常后不再执行报告与导出，异常原样传播。"""
+        """Review failure skips reporting/export and propagates unchanged."""
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.prepare.return_value = store
-        orch._preparation.activate.return_value = self._manifest()
-        orch._preparation.ensure_understanding.return_value = ""
-        orch._translation.run.return_value = store
+        self.preparation.prepare.return_value = store
+        self.preparation.activate.return_value = self._manifest()
+        self.preparation.ensure_understanding.return_value = ""
+        self.translation.run.return_value = store
         boom = RuntimeError("review 失败")
-        orch._review.run_session.side_effect = boom
+        self.review.run_session.side_effect = boom
 
         with self.assertRaises(RuntimeError) as ctx:
             orch.run_steps("novel.txt", {"translate", "review", "report", "assemble"})
         self.assertIs(ctx.exception, boom)
-        orch._report.build_and_save.assert_not_called()
-        orch._assembly.assemble_live.assert_not_called()
+        self.report.build_and_save.assert_not_called()
+        self.assembly.assemble_live.assert_not_called()
 
     def test_report_failure_short_circuits_assemble(self):
-        """报告异常后不再导出，异常原样传播。"""
+        """Report failure skips export and propagates unchanged."""
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.prepare.return_value = store
-        orch._preparation.activate.return_value = self._manifest()
-        orch._preparation.ensure_understanding.return_value = ""
-        orch._translation.run.return_value = store
+        self.preparation.prepare.return_value = store
+        self.preparation.activate.return_value = self._manifest()
+        self.preparation.ensure_understanding.return_value = ""
+        self.translation.run.return_value = store
         boom = RuntimeError("report 失败")
-        orch._report.build_and_save.side_effect = boom
+        self.report.build_and_save.side_effect = boom
 
         with self.assertRaises(RuntimeError) as ctx:
             orch.run_steps("novel.txt", {"translate", "report", "assemble"})
         self.assertIs(ctx.exception, boom)
-        orch._assembly.assemble_live.assert_not_called()
+        self.assembly.assemble_live.assert_not_called()
 
     def test_run_all_with_review_enabled_requests_review(self):
-        """run_all 在配置开启 Review 时把 review 加入步骤集合。"""
+        """run_all includes review when enabled in configuration."""
         orch = self._orchestrator(review=True)
-        with unittest.mock.patch.object(orch, "run_steps", return_value={"sentinel": True}) as spy:
+        with patch.object(orch, "run_steps", return_value={"sentinel": True}) as spy:
             result = orch.run_all("novel.txt")
         spy.assert_called_once()
         steps = spy.call_args.args[1]
@@ -398,27 +417,27 @@ class TestOrchestratorContract(unittest.TestCase):
         self.assertEqual(result, {"sentinel": True})
 
     def test_run_all_without_review_excludes_review(self):
-        """run_all 在配置关闭 Review 时不请求审校。"""
+        """run_all omits review when disabled in configuration."""
         orch = self._orchestrator(review=False)
-        with unittest.mock.patch.object(orch, "run_steps", return_value={}) as spy:
+        with patch.object(orch, "run_steps", return_value={}) as spy:
             orch.run_all("novel.txt")
         self.assertEqual(spy.call_args.args[1], {"translate", "report", "assemble"})
 
     def test_prepare_delegates_thinly(self):
-        """prepare 是准备服务的薄委托，参数与返回值原样透传。"""
+        """prepare is a thin delegation preserving arguments and return values."""
         orch = self._orchestrator()
         store = _RecordingStore()
-        orch._preparation.prepare.return_value = store
+        self.preparation.prepare.return_value = store
         progress = Mock()
 
         result = orch.prepare("novel.txt", progress=progress)
 
         self.assertIs(result, store)
-        orch._preparation.prepare.assert_called_once_with("novel.txt", progress=progress)
+        self.preparation.prepare.assert_called_once_with("novel.txt", progress=progress)
 
     def test_facade_still_exposes_config_and_client(self):
-        """公开契约：.config 与 .client 继续可从 Orchestrator 实例访问。"""
-        cfg = Config.from_dict({"llm": {"provider": "fake"}})
+        """Preserve public access to Orchestrator.config and Orchestrator.client."""
+        cfg = Config.from_dict({"llm": {"preset": "fake"}})
         orch = Orchestrator(cfg)
         self.assertIs(orch.config, cfg)
         self.assertIsNotNone(orch.client)

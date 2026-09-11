@@ -1,4 +1,4 @@
-"""审校 / 润色测试（离线）。"""
+"""Offline review and polishing tests."""
 
 from __future__ import annotations
 
@@ -7,10 +7,12 @@ import re
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from trans_novel.agents.polisher import Polisher
 from trans_novel.agents.reviewer import Reviewer, ReviewOutputError
 from trans_novel.config import Config
+from trans_novel.glossary.store import GlossaryStore, GlossaryTerm
 from trans_novel.ingest.models import Segment
 from trans_novel.llm.providers.fake import FakeClient
 from trans_novel.pipeline.orchestrator import Orchestrator
@@ -22,8 +24,11 @@ def _cfg():
         {
             "language": {"source": "ja", "target": "zh"},
             "llm": {
-                "provider": "fake",
-                "tiers": {"strong": {"model": "p"}, "cheap": {"model": "f"}},
+                "preset": "fake",
+                "models": {
+                    "default_strong": {"provider": "default", "model": "p"},
+                    "default_cheap": {"provider": "default", "model": "f"},
+                },
             },
         }
     )
@@ -60,10 +65,13 @@ class TestReviewer(unittest.TestCase):
         r = Reviewer(client, _cfg())
         out = r.review(["あ", "い"], ["甲", "乙"])
         self.assertEqual(len(out), 2)
-        self.assertEqual(client.calls[-1]["tier"], "cheap")  # 审校走廉价档
+        self.assertEqual(client.calls[-1]["tier"], "cheap")  # Review uses the cheap tier.
+        self.assertIn('"reviewed_segments":2', client.calls[-1]["messages"][0]["content"])
 
     def test_reviewer_drops_fields_outside_the_initial_issue_contract(self):
-        """廉价初审不能绕过强档 Agent 注入跨块一致性 claim。"""
+        """Cheap initial review cannot bypass the strong agent to inject cross-block
+        consistency claims.
+        """
         issues = [
             {
                 "index": 0,
@@ -239,7 +247,9 @@ class TestReviewer(unittest.TestCase):
                 events = [json.loads(line) for line in file]
 
         self.assertEqual([item["index"] for item in issues], [0, 1, 2, 3])
-        self.assertEqual(len(client.calls), 7)  # 4 段二叉拆分：1 + 2 + 4
+        self.assertEqual(
+            len(client.calls), 7
+        )  # Binary splitting of four paragraphs makes 1 + 2 + 4 calls.
         splits = [event for event in events if event["event"] == "review_chunk_split"]
         self.assertEqual(len(splits), 3)
         self.assertTrue(all(event["chapter"] == 7 for event in splits))
@@ -301,7 +311,9 @@ class TestReviewer(unittest.TestCase):
             )
 
         cfg = _cfg()
-        cfg.segment.max_chars_per_batch = 1  # 审校预算=3，使两个 3 字段落各成一块
+        cfg.segment.max_chars_per_batch = (
+            1  # A budget of three gives each three-character paragraph its own review block.
+        )
         cfg.pipeline.review_concurrency = 2
         orch = Orchestrator(cfg, client=FakeClient(handler=handler))
         segments = [
@@ -313,6 +325,62 @@ class TestReviewer(unittest.TestCase):
 
         self.assertEqual([it["index"] for it in issues], [0, 1])
         self.assertEqual([it["detail"] for it in issues], ["甲", "乙"])
+
+    def test_fresh_review_blocks_share_chapter_glossary_after_cache_lookup(self):
+        """A pending block still sees terms from cached neighbors in the same chapter."""
+        for scope in ("chapter", "book"):
+            for cache_first in (False, True):
+                with self.subTest(scope=scope, cache_first=cache_first):
+                    cfg = _cfg()
+                    cfg.segment.max_chars_per_batch = 1
+                    cfg.pipeline.review_concurrency = 2
+                    cfg.pipeline.glossary_scope = scope
+                    expected_calls = 1 if cache_first else 2
+                    barrier = threading.Barrier(expected_calls)
+
+                    def handler(messages, tier, json_mode):
+                        barrier.wait(timeout=2)
+                        return _review_response([], 1)
+
+                    orch = Orchestrator(cfg, client=FakeClient(handler=handler))
+                    segments = [
+                        Segment(index=0, source="Ann", target="Anne"),
+                        Segment(index=1, source="Bob", target="Robert"),
+                    ]
+                    terms = [GlossaryTerm(source=s, target=s) for s in ("Ann", "Bob", "Unused")]
+                    completed = []
+                    with tempfile.TemporaryDirectory() as directory:
+                        debug = ReviewRunStore(directory)
+                        if cache_first:
+                            debug.mark_chunk_done(
+                                "r1-ch0-base0-n1",
+                                {"issues": [], "initial_issues": [], "dismissed": []},
+                            )
+                        reviewer = orch._runtime.reviewer
+                        with (
+                            patch.object(
+                                GlossaryStore, "terms_in", wraps=GlossaryStore.terms_in
+                            ) as matching,
+                            patch.object(
+                                reviewer, "review_result", wraps=reviewer.review_result
+                            ) as reviewing,
+                        ):
+                            issues = orch._review.review_chapter(
+                                segments,
+                                terms,
+                                chapter_index=0,
+                                review_round=1,
+                                debug=debug,
+                                on_chunk_finished=completed.append,
+                            )
+
+                    self.assertEqual(issues, [])
+                    self.assertEqual(completed, [1, 1])
+                    self.assertEqual(matching.call_count, 1 if scope == "chapter" else 0)
+                    self.assertEqual(reviewing.call_count, expected_calls)
+                    expected_terms = terms[:2] if scope == "chapter" else terms
+                    for call in reviewing.call_args_list:
+                        self.assertEqual(call.args[2], expected_terms)
 
 
 class TestPolisher(unittest.TestCase):
@@ -333,7 +401,9 @@ class TestPolisher(unittest.TestCase):
         )
         p = Polisher(client, _cfg())
         out = p.polish(["甲", "乙"])
-        self.assertEqual(out, ["甲", "乙"])  # 段数不符 → 保守保留原译
+        self.assertEqual(
+            out, ["甲", "乙"]
+        )  # Preserve the original translation on paragraph-count mismatch.
 
 
 if __name__ == "__main__":

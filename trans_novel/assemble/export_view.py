@@ -1,6 +1,6 @@
-"""导出专用的一次性章节视图。
-
-机械后处理只修改 ``load_chapter`` 返回的内存副本，绝不写回 RunStore。
+"""Disposable chapter view used only for export.
+Deterministic postprocessing changes only in-memory copies returned by load_chapter and
+never writes back to RunStore.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from typing import Any
 from ..ingest.models import Chapter
 from ..pipeline.runstore import RunStore
 from ..postprocess.punct import normalize_zh_segments
+from .writer_common import _manifest_target_lang
 
 
 def _target_digest(text: str) -> str:
@@ -19,7 +20,9 @@ def _target_digest(text: str) -> str:
 
 
 def _boundary_map(before: str, after: str) -> list[int]:
-    """把变换前的字符边界映射到变换后，供注释/样式偏移复用。"""
+    """Map original character boundaries to transformed boundaries for annotation and style
+    offsets.
+    """
     mapping = [0] * (len(before) + 1)
     matcher = SequenceMatcher(a=before, b=after, autojunk=False)
     for operation, before_start, before_end, after_start, after_end in matcher.get_opcodes():
@@ -38,7 +41,7 @@ def _boundary_map(before: str, after: str) -> list[int]:
 
 
 def _remap_metadata_offsets(metadata: object, before: str, after: str) -> None:
-    """仅当定位结果与正式译文匹配时，为导出副本重映射偏移。"""
+    """Remap export-copy offsets only when placements match the formal translation."""
     if not isinstance(metadata, dict) or metadata.get("target_digest") != _target_digest(before):
         return
     mapping = _boundary_map(before, after)
@@ -64,12 +67,14 @@ def _remap_metadata_offsets(metadata: object, before: str, after: str) -> None:
 
 
 class ExportViewStore(RunStore):
-    """在 RunStore 上叠加只读导出变换，其它能力透传给原 store。"""
+    """Overlay read-only export transformations on RunStore and delegate other capabilities."""
 
     def __init__(self, store: RunStore, *, punctuation_normalize: bool) -> None:
         super().__init__(store.run_dir, create=False)
         self._store = store
-        self._punctuation_normalize = punctuation_normalize
+        self._punctuation_normalize = (
+            punctuation_normalize and _manifest_target_lang(store.load_manifest()) == "zh"
+        )
 
     def load_manifest(self) -> dict:
         return self._store.load_manifest()
