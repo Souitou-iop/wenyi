@@ -1,9 +1,8 @@
-"""Review Autofix 发布服务。
-
-现有 Review 引擎仍保持只读：本服务在 Review 结果完整落盘后，先把
-``changes`` 叠加到不可变工作快照，再让最终未解决 ``issues`` 按段进入有界取证
-Agent Loop。全部候选准备完成后先写 ``autofix/index.json``，然后才修改正式
-章节 ``target``，使进程中断后可按 before/after 哈希幂等续跑。
+"""Review Autofix publication service.
+The review engine stays read-only. After its results are persisted, overlay changes on an
+immutable working snapshot and verify remaining issues by paragraph through the bounded
+evidence loop. Prepare every candidate and persist autofix/index.json before modifying
+formal chapter target text, enabling idempotent recovery through before/after hashes.
 """
 
 from __future__ import annotations
@@ -18,7 +17,8 @@ from typing import TYPE_CHECKING, Any
 from ..agents.review_fixer import ProvisionalPatch, ReviewFixer
 from ..agents.review_loop import ReviewAgentLoop
 from ..glossary.store import GlossaryStore, GlossaryTerm
-from ..llm.usage import usage_delta
+from ..llm.routing import inference_snapshot
+from ..llm.usage import validate_usage
 from ..review.evidence import BookEvidenceIndex
 from ..review.run_store import ReviewOutcome, ReviewRunStore, review_candidate_id
 from .docx_styles import DocxStyleService
@@ -32,23 +32,23 @@ ProgressFn = Callable[[int, int, str], None]
 
 
 def _sha256(text: str) -> str:
-    """返回 Autofix 乐观写回协议使用的 UTF-8 SHA-256。"""
+    """Return the UTF-8 SHA-256 used by the optimistic autofix publication protocol."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _load_json(path: str) -> Any:
-    """读取 Review 目录内已有 JSON；调用方负责容错。"""
+    """Read JSON within a review directory; leave recovery handling to the caller."""
     with open(path, encoding="utf-8") as file:
         return json.load(file)
 
 
 def _integer_index(value: Any) -> int | None:
-    """只接受非布尔整数位置，并向静态类型检查器显式收窄类型。"""
+    """Accept integer positions excluding booleans and narrow the type explicitly."""
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 class ReviewAutofixService:
-    """把只读 Review 结果发布到正式章节，并保留可恢复索引。"""
+    """Publish read-only review recommendations to formal chapters with a recoverable index."""
 
     def __init__(self, runtime: PipelineRuntime, annotations: AnnotationService):
         self._runtime = runtime
@@ -57,7 +57,7 @@ class ReviewAutofixService:
 
     @staticmethod
     def _review_result(run_dir: str) -> dict[str, Any] | None:
-        """读取一次 Review 的结果对象。"""
+        """Read one review result object."""
         try:
             result = _load_json(os.path.join(run_dir, "result.json"))
         except (OSError, json.JSONDecodeError, TypeError):
@@ -66,7 +66,7 @@ class ReviewAutofixService:
 
     @staticmethod
     def _index(run_dir: str) -> dict[str, Any] | None:
-        """读取 Autofix 索引；缺失或损坏时返回 None。"""
+        """Read the autofix index, or return None if missing or damaged."""
         try:
             index = _load_json(os.path.join(run_dir, "autofix", "index.json"))
         except (OSError, json.JSONDecodeError, TypeError):
@@ -79,7 +79,7 @@ class ReviewAutofixService:
         *,
         progress: ProgressFn | None = None,
     ) -> ReviewOutcome | None:
-        """优先完成已生成发布索引的中断 Autofix，避免重跑 Review/Agent。"""
+        """Finish interrupted indexed publication before repeating review or agent calls."""
         if not os.path.isdir(store.reviews_dir):
             return None
         for name in sorted(os.listdir(store.reviews_dir), reverse=True):
@@ -90,8 +90,8 @@ class ReviewAutofixService:
             if result is None:
                 continue
             index = self._index(run_dir)
-            # 只处理最新的有效 Review。若它尚未生成索引，正常路径会先复用
-            # 该 Review 结果再规划 Autofix；不得越过它发布更早的遗留索引。
+            # Handle only the newest valid review. If it lacks an index, the normal path reuses its result
+            # and plans autofix; never bypass it to publish an older leftover index.
             if index is None:
                 return None
             status = index.get("status")
@@ -103,7 +103,7 @@ class ReviewAutofixService:
             if status in {"completed", "partial"} and not isinstance(result_autofix, dict):
                 debug = ReviewRunStore.open_existing(run_dir)
                 return self._finish_result(store, debug, index, result)
-            # 新目录在前；它若已完成，更早的索引不应再发布。
+            # Newest directories come first; once the newest is complete, never publish earlier indices.
             if status in {"completed", "partial"}:
                 return None
         return None
@@ -116,10 +116,30 @@ class ReviewAutofixService:
         *,
         progress: ProgressFn | None = None,
     ) -> ReviewOutcome:
-        """为已完成 Review 生成终局候选、索引并幂等发布。"""
+        """Flush completed model responses even if planning or publication is interrupted."""
         if not self._runtime.config.pipeline.review_autofix:
             return outcome
         debug = ReviewRunStore.open_existing(outcome.run_dir)
+        try:
+            return self._run(store, outcome, all_terms, progress=progress)
+        finally:
+            self._save_usage_delta(store, debug, scope="review_autofix")
+
+    def _run(
+        self,
+        store: RunStore,
+        outcome: ReviewOutcome,
+        all_terms: list[GlossaryTerm],
+        *,
+        progress: ProgressFn | None = None,
+    ) -> ReviewOutcome:
+        """Prepare final candidates and an index for a completed review, then publish
+        idempotently.
+        """
+        if not self._runtime.config.pipeline.review_autofix:
+            return outcome
+        debug = ReviewRunStore.open_existing(outcome.run_dir)
+        validate_usage(debug.load_usage())
         existing = self._index(outcome.run_dir)
         if existing is not None:
             status = existing.get("status")
@@ -133,6 +153,14 @@ class ReviewAutofixService:
                 )
             if status in {"completed", "partial"}:
                 return self._finish_result(store, debug, existing, outcome.result)
+
+        inference = inference_snapshot(self._runtime.llm_config, ("autofix.verify", "autofix.fix"))
+        plan = debug.load_json("autofix/plan.json")
+        if plan is not None and plan.get("inference") != inference:
+            raise ValueError(
+                "Autofix planning models changed. Restore the prior routes to finish this review."
+            )
+        debug.write_json("autofix/plan.json", {"inference": inference})
 
         manifest = store.load_manifest()
         chapters = [
@@ -191,8 +219,8 @@ class ReviewAutofixService:
             records.append(record)
             return record
 
-        # changes 先全量叠加。用户显式开启 Autofix 时，不再对 review_result
-        # 做二次筛选；原始状态仍保留在索引供后续解析。
+        # Overlay all changes first. Explicit autofix does not apply another review_result filter;
+        # retain original status values in the index for later interpretation.
         def location_key(item: dict[str, Any]) -> tuple[int, int]:
             chapter = _integer_index(item.get("chapter"))
             index = _integer_index(item.get("index"))
@@ -305,14 +333,15 @@ class ReviewAutofixService:
 
         jobs = sorted(grouped.items())
         if progress and jobs:
-            progress(0, len(jobs), "终局自动修订")
+            progress(0, len(jobs), "Final automatic revision")
         review_agent = ReviewAgentLoop(
             self._runtime.client,
             self._runtime.config,
             evidence,
             debug,
+            operation="autofix.verify",
         )
-        fixer = ReviewFixer(self._runtime.client, self._runtime.config)
+        fixer = ReviewFixer(self._runtime.client, self._runtime.config, operation="autofix.fix")
         style = self._runtime.analyzer.style_brief(analysis)
         book_synopsis = str(analysis.get("book_synopsis", "") or "")
         fixer_round = max(
@@ -512,7 +541,7 @@ class ReviewAutofixService:
                     nearby_pairs=nearby_pairs,
                     trace=record,
                 )
-            except Exception as error:  # noqa: BLE001 - 终局失败保留未修改问题
+            except Exception as error:  # noqa: BLE001 - Preserve unchanged issues when final verification fails.
                 trace["status"] = "failed"
                 trace["error"] = {
                     "type": type(error).__name__,
@@ -547,7 +576,7 @@ class ReviewAutofixService:
             for done, job in enumerate(jobs, start=1):
                 fixed.append(fix_job(job))
                 if progress:
-                    progress(done, len(jobs), "终局自动修订")
+                    progress(done, len(jobs), "Final automatic revision")
         else:
             ordered: list[dict[str, Any] | None] = [None] * len(jobs)
             with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -557,7 +586,7 @@ class ReviewAutofixService:
                 for done, future in enumerate(as_completed(futures), start=1):
                     ordered[futures[future]] = future.result()
                     if progress:
-                        progress(done, len(jobs), "终局自动修订")
+                        progress(done, len(jobs), "Final automatic revision")
             fixed = [item for item in ordered if item is not None]
 
         for fixed_result in fixed:
@@ -678,6 +707,7 @@ class ReviewAutofixService:
 
         index = {
             "version": 1,
+            "inference": inference,
             "review_id": debug.review_id,
             "status": "applying",
             "reviewed_content_digest": outcome.result.get("reviewed_content_digest"),
@@ -707,16 +737,8 @@ class ReviewAutofixService:
         *,
         scope: str,
     ) -> None:
-        """把当前 Runtime 尚未落盘的调用同时合并到 Review 与全书账本。"""
-        before = store.load_usage() or {
-            "totals": {},
-            "by_tier": {},
-            "by_stage": {},
-        }
-        cumulative = self._runtime.flush_usage(store, scope=scope)
-        increment = usage_delta(cumulative, before)
-        if increment.get("totals", {}).get("calls"):
-            debug.save_usage(increment)
+        """Merge unflushed runtime calls into both the review ledger and whole-book totals."""
+        self._runtime.flush_usage(store, scope=scope, review=debug)
 
     def _apply_index(
         self,
@@ -727,7 +749,9 @@ class ReviewAutofixService:
         *,
         progress: ProgressFn | None,
     ) -> ReviewOutcome:
-        """按索引幂等写回正式 target，然后刷新与字符位置相关的元数据。"""
+        """Publish formal targets idempotently from the index, then refresh character-offset
+        metadata.
+        """
         raw_locations = index.get("locations")
         locations = [row for row in raw_locations or [] if isinstance(row, dict)]
         by_chapter: dict[int, list[dict[str, Any]]] = {}
@@ -739,7 +763,7 @@ class ReviewAutofixService:
         total = len(locations)
         done = 0
         if progress and total:
-            progress(0, total, "写回 Review Autofix")
+            progress(0, total, "Publishing Review Autofix")
         for chapter_index in sorted(by_chapter):
             chapter = store.load_chapter(chapter_index)
             chapter_locations = sorted(
@@ -778,11 +802,11 @@ class ReviewAutofixService:
                     row["actual_hash"] = _sha256(current)
                 done += 1
                 if progress:
-                    progress(done, total, "写回 Review Autofix")
+                    progress(done, total, "Publishing Review Autofix")
             if chapter_changed:
                 store.save_chapter(chapter)
 
-            # 翻译后对齐依赖 target 字符偏移；Autofix 发布后必须按最终文本刷新。
+            # Post-translation alignment depends on target offsets; refresh it against final published text.
             for text_index in sorted(set(applied_positions)):
                 row = next(item for item in chapter_locations if item.get("index") == text_index)
                 if row.get("status") == "failed" or row.get("alignment_status") == "completed":
@@ -834,7 +858,7 @@ class ReviewAutofixService:
         index: dict[str, Any],
         result: dict[str, Any],
     ) -> ReviewOutcome:
-        """将 Autofix 发布摘要幂等合并到 Review result.json。"""
+        """Merge the autofix publication summary into review result.json idempotently."""
         records = [record for record in index.get("records", []) if isinstance(record, dict)]
         locations = [row for row in index.get("locations", []) if isinstance(row, dict)]
         applied_locations = [row for row in locations if row.get("status") == "applied"]

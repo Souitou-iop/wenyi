@@ -21,6 +21,12 @@ Read input
 -> Write the copy back and assemble the requested output
 ```
 
+## Language rules and state scope
+
+Source and target are independent choices. Body translation, titles, term renderings and notes, analysis descriptions, polishing, chapter digests, and book synopses are requested in the target language. Character references in prose use target-language names; `source` and `aliases` retain their original spelling. Task instructions use English and live in `trans_novel/i18n/data/tasks/`; source understanding, target expression, pair-specific honorific rules, and metadata language constraints live alongside them in `languages/`, `pairs/`, and `shared/`. JSON keys and stable identities remain unchanged. Glossary type/gender values use English identifiers; older Chinese enum values are no longer converted. Analysis also accepts a model's list of style-guide bullets without discarding it. Existing analysis and notes remain intact on resume; resource updates apply to new model calls.
+
+All targets, including `zh`, own separate state under `state/<book>/targets/<target-language>/`. Completed segments still skip model calls; updated resources affect subsequent requests. Initialization records a prompt fingerprint, run events record applied resources, and Review cache identity includes languages, honorific strategy, and the resource fingerprint. Manifest-last initialization, atomic writes, domain locks, and Review/Autofix publication boundaries remain in place. See [P10](project-review/2026-09-05/p10-multilingual-internationalization.md).
+
 ## Whole-book understanding and context
 
 The prescan creates a digest for each chapter and a synopsis of the complete book. For every translation batch, the prompt presents stable information first: style guidance, the whole-book synopsis, the current chapter digest, relevant glossary terms, any source-language notes referenced by the current segments, recent translated context, and finally the source text to translate. Recent translation therefore remains immediately adjacent to the new source passage.
@@ -36,8 +42,8 @@ The glossary constrains later translation and supplies evidence to the final rev
 ## Quality controls
 
 - **Segment alignment:** the model must return a JSON array with the same number of items as the input. Wenyi retries mismatched batches and falls back to translating one segment at a time.
-- **Polishing:** improves Chinese fluency while preserving meaning and segment count.
-- **Punctuation normalization:** optionally converts punctuation to common Simplified Chinese full-width conventions on an export-only copy. It never rewrites formal chapter `target` values, so changing this output option does not alter translation, Review, or resume state.
+- **Polishing:** improves target-language fluency while preserving meaning and segment count.
+- **Punctuation normalization:** optionally converts punctuation to common Simplified Chinese full-width conventions on an export-only copy for Simplified Chinese targets; other targets skip this conversion. It never rewrites formal chapter `target` values, so changing this output option does not alter translation, Review, or resume state.
 - **EPUB annotation context:** during preparation, Wenyi resolves high-confidence footnote and endnote references to their source-language note bodies, deduplicates shared targets, and stores an auxiliary copy separately from chapter text. Translation batches automatically receive that copy only for the numbered segments that reference it. Backlinks, chapter jumps, external links, and other ordinary hyperlinks are excluded. The borrowed copy is never appended to the referencing segment or rolling context; note resources already present in the EPUB spine remain ordinary translatable book content.
 - **EPUB annotation alignment:** removes recognized footnote markers from translatable source text while retaining semantic superscripts/subscripts. As soon as an annotated logical paragraph has been fully translated and polished, Wenyi makes one sequential alignment call against the formal target and immediately persists the restored `a/sup/href/id/class` positions. When export punctuation normalization is enabled, the export layer remaps those offsets together with the normalized in-memory copy. Split continuations are rejoined first; unrelated paragraphs make no call. Failures degrade to clickable end markers instead of dropping links. Untranslated text and bilingual source copies keep the source EPUB's original annotation positions. EPUB state created before this metadata format must be prepared again from the source book.
 - **Agent Review:** starts only after every chapter has been translated and uses the completed glossary. Contiguous chapter chunks are checked concurrently with the existing Reviewer prompt. Every response must end with a completion receipt containing the exact reviewed-segment count and `complete: true`. Syntax-only JSON damage is repaired locally with `json-repair`; a missing or invalid receipt recursively splits only the affected chunk, and a singleton receives at most `1 + review_output_retries` attempts.
@@ -54,15 +60,23 @@ uv run trans-novel review book.epub
 uv run trans-novel review book.epub --autofix
 ```
 
-The explicit command runs even when `pipeline.review` is disabled. Every invocation
-reviews the complete translated book from the beginning. The Review engine first
-updates a run-local shadow translation. Publishing is enabled by default;
+The explicit command runs even when `pipeline.review` is disabled. Matching completed
+results are reused; an interrupted Review resumes its saved rounds, chunks, and agent
+traces when content, configuration, and glossary fingerprints match. Otherwise, a new
+whole-book Review starts. Cached chunks and completed initial screening skip chapter
+glossary matching; pending reviewer requests share one chapter-wide glossary snapshot.
+The CLI shows chapter loading and checkpoint preparation before reviewing paragraphs.
+Elapsed time measures the current stage of this invocation and continues advancing
+while model requests are pending; paragraph counts advance when a top-level chunk
+finishes, including chunks restored from cache.
+
+The Review engine first updates a run-local shadow translation. Publishing is enabled by default;
 set `pipeline.review_autofix: false` or pass `--no-autofix` to keep Review from
 replacing formal chapter `target` values. The manifest and glossary are never changed.
 The final result, run-local usage delta, events, and internal traces are written to:
 
 ```text
-state/<book>/reviews/review-YYYYMMDD-HHMMSS-ffffff/
+state/<book>/targets/<target-language>/reviews/review-YYYYMMDD-HHMMSS-ffffff/
 ```
 
 The base Review directory contains `result.json`, `usage.json`, `events.jsonl`, and
@@ -96,6 +110,14 @@ Each completed translation batch is persisted immediately. When polishing is ena
 `.srt` files take a parallel light path under `trans_novel.srt`, not the book
 Orchestrator above. There is no whole-book prescan, glossary, polishing, or
 Review. Translation uses overlapping cue windows with high concurrency on the
-strong model tier; progress is stored under `state/srt/<slug>/` with
+strong model tier; progress is stored under `state/srt/<slug>/targets/<target-language>/` with
 `cues.jsonl`, batch caches, `usage.json`, and `events.jsonl`. See
 [Usage guide — SRT subtitles](usage.md#srt-subtitles).
+
+## Model registration and usage
+
+All model calls use stable operation IDs from `llm/operations.py`; `llm/registry.py` registers provider adapters. Runtime and the separate SRT workflow each own one routed client, reusing SDK connections and sharing invocation concurrency, quotas and usage. Agents select no provider or tier; Orchestrator retains only assembly and workflow routing.
+
+To add a model operation, register an `OperationSpec` with its ID, default tier or inherited operation, output hint, workflow flags and protocol version, then call `complete(..., operation="domain.operation")` in the domain service. Validation, CLI previews and inference fingerprints read the same registry. To add a provider, implement its options, request builder, usage normalization and `ProviderAdapter` under `llm/providers/`, then register a `ProviderSpec`. Keep SDK initialization lazy and SDK retries disabled. Change the relevant protocol version when request semantics change, and cover requests, usage and resume behavior with offline tests. Registries are immutable after startup.
+
+Review compares the effective inference identity of reachable operations. Model, endpoint or option changes create a new Review, while unrelated routes or concurrency changes preserve caches. Pending Autofix publication takes priority; evidence traces are never replayed under another model. Book and Review ledgers journal their snapshots in `usage-pending.json` before updating each `usage.json`, allowing idempotent recovery.

@@ -1,20 +1,13 @@
-"""编排器：纯流程控制层，唯一公开的编排 façade。
-
-Orchestrator 只负责：
-  * 共享 runtime 与各具体服务（准备/翻译/注释/审校/Autofix/收尾）的装配；
-  * steps 路由、阶段顺序、锁作用域选择、metrics session 包裹、progress 转发；
-  * 异常短路与异常传播、统一返回结构。
-
-文档解析、LLM/Agent 调用、状态读写、线程池、术语处理、注释对齐、Review 状态机、
-报告、导出、用量和指标等实际操作均位于各领域服务中。编排器不直接依赖
-agents / ingest / glossary / assemble / ThreadPoolExecutor，也不直接读写任何
-状态文件。依赖方向固定为：
-
-    CLI → Orchestrator → Runtime / Preparation / Translation / Annotation /
-                          Review / ReviewAutofix / Finalization → agents / ingest /
-                          glossary / assemble / RunStore
-
-任何下层模块都不得反向导入本模块。
+"""The public orchestration facade for workflow control.
+Assemble runtime and preparation, translation, annotation, review, autofix and finalization
+services. Route steps, order stages, choose lock scopes, forward
+progress and propagate exceptions with consistent return structures.
+All parsing, model calls, state I/O, pools, glossary operations, alignment, review state
+machines, reports, exports and accounting belong to domain services. This facade must not
+directly depend on agents, ingest, glossary, assemble or ThreadPoolExecutor, nor read/write
+state files.
+Dependencies flow from CLI to Orchestrator, then Runtime/domain services, then
+agents/ingest/glossary/assemble/RunStore. Lower layers must never import this module.
 """
 
 from __future__ import annotations
@@ -29,7 +22,7 @@ from .preparation import PreparationService
 from .review_autofix import ReviewAutofixService
 from .review_workflow import ReviewService
 from .runstore import RunStore
-from .runtime import LLMClient, PipelineRuntime, _record_pipeline_metrics, _record_run_metrics
+from .runtime import LLMClient, PipelineRuntime
 from .translation import TranslationService
 
 ProgressFn = Callable[[int, int, str], None]
@@ -37,13 +30,13 @@ PhaseFn = Callable[[str, str], None]
 
 
 class Orchestrator:
-    """编排 façade：装配运行时与服务，只保留步骤路由和锁作用域控制。"""
+    """Assemble runtime/services and control only step routing and lock scopes."""
 
-    # 可选步骤 / 连续全流程
+    # Optional stages and the complete workflow.
     ALL_STEPS = ("translate", "review", "report", "assemble")
 
     def __init__(self, config: Config, client: LLMClient | None = None):
-        """装配共享 runtime 与各领域服务，不做任何领域 I/O。"""
+        """Assemble shared runtime and domain services without domain I/O."""
         self.config = config
         self._runtime = PipelineRuntime(config, client=client)
         self.client = self._runtime.client
@@ -55,38 +48,27 @@ class Orchestrator:
         self._report = ReportService(self._runtime)
         self._assembly = AssemblyService(self._runtime)
 
-    # ── 公开入口 ──────────────────────────────────────────────────────────
+    # Public entry points.
     def prepare(self, input_path: str, *, progress: ProgressFn | None = None) -> RunStore:
-        """解析输入并定位状态目录；首次运行时在书级锁内完成初始化。"""
+        """Parse input and locate state; initialize first runs under the book lock."""
         return self._preparation.prepare(input_path, progress=progress)
 
-    @_record_run_metrics("prepare", ["prepare", "understanding"])
     def prepare_for_translation(
         self,
         input_path: str,
         *,
         progress: ProgressFn | None = None,
     ) -> RunStore:
-        """完成全部译前准备并停止，不翻译正文。
-
-        包括文档解析、语言识别、风格/初始术语分析，以及配置开启时的
-        逐章预扫和全书概览。所有阶段均可续跑，再次调用会复用已落盘结果。
+        """Complete all preparation without translating body text.
+        Parse the document, detect language, analyze style and initial terms, and optionally
+        prescan chapters and synthesize a synopsis. Every stage resumes by reusing persisted
+        results.
         """
-        store = self._runtime.measure_stage_call(
-            "prepare",
-            self._preparation.prepare,
-            input_path,
-            progress=progress,
-        )
+        store = self._preparation.prepare(input_path, progress=progress)
         with store.lock():
             self._preparation.activate(store)
             try:
-                self._runtime.measure_stage_call(
-                    "understanding",
-                    self._preparation.ensure_understanding,
-                    store,
-                    progress=progress,
-                )
+                self._preparation.ensure_understanding(store, progress=progress)
                 self._runtime.log_event(
                     store,
                     "translation_prepared",
@@ -95,14 +77,8 @@ class Orchestrator:
                 )
             finally:
                 self._runtime.flush_usage(store, scope="prepare")
-            self._runtime.capture_metrics_state(store)
         return store
 
-    @_record_run_metrics(
-        "translate",
-        ["translate"],
-        invocation_fields=("only_chapter",),
-    )
     def run(
         self,
         input_path: str,
@@ -111,24 +87,17 @@ class Orchestrator:
         progress: ProgressFn | None = None,
         phase: PhaseFn | None = None,
     ) -> RunStore:
-        """准备运行状态并在书级锁内翻译待处理章节。"""
+        """Prepare state and translate pending chapters under the book lock."""
         if phase:
             phase("preparing", "准备图书")
-        store = self._runtime.measure_stage_call(
-            "prepare",
-            self._preparation.prepare,
-            input_path,
-            progress=progress,
-        )
+        store = self._preparation.prepare(input_path, progress=progress)
         with store.lock():
-            result = self._run_locked(
+            return self._run_locked(
                 store,
                 only_chapter=only_chapter,
                 progress=progress,
                 phase=phase,
             )
-            self._runtime.capture_metrics_state(store)
-            return result
 
     def _run_locked(
         self,
@@ -138,21 +107,20 @@ class Orchestrator:
         progress: ProgressFn | None,
         phase: PhaseFn | None = None,
     ) -> RunStore:
-        """恢复语言、校验章节编号、生成全书概览，再委托正文翻译。"""
+        """Restore languages, validate chapter selection, build the synopsis and delegate
+        translation.
+        """
         manifest = self._preparation.activate(store)
         chapter_indices = {chapter.get("index") for chapter in manifest.get("chapters", [])}
         if only_chapter is not None and only_chapter not in chapter_indices:
             available = sorted(index for index in chapter_indices if isinstance(index, int))
-            valid_range = f"0–{available[-1]}" if available else "无可翻译章节"
-            raise ValueError(f"章节编号 {only_chapter} 不存在；可用范围：{valid_range}")
+            valid_range = f"0–{available[-1]}" if available else "no translatable chapters"
+            raise ValueError(
+                f"Chapter index {only_chapter} does not exist; available range: {valid_range}"
+            )
         if phase:
             phase("translating", "正文翻译")
-        book_synopsis = self._runtime.measure_stage_call(
-            "understanding",
-            self._preparation.ensure_understanding,
-            store,
-            progress=progress,
-        )
+        book_synopsis = self._preparation.ensure_understanding(store, progress=progress)
         return self._translation.run(
             store,
             book_synopsis=book_synopsis,
@@ -160,20 +128,14 @@ class Orchestrator:
             progress=progress,
         )
 
-    @_record_run_metrics("review", ["review", "review_autofix"])
     def run_review(
         self,
         input_path: str,
         *,
         progress: ProgressFn | None = None,
     ) -> dict[str, Any]:
-        """全量执行 Review，并按配置发布 Autofix 结果。"""
-        store = self._runtime.measure_stage_call(
-            "prepare",
-            self._preparation.locate_existing,
-            input_path,
-            progress=progress,
-        )
+        """Run complete review and publish autofix results when configured."""
+        store = self._preparation.locate_existing(input_path, progress=progress)
         with store.lock():
             self._preparation.activate(store)
             terms = self._review.session_terms(store)
@@ -182,7 +144,6 @@ class Orchestrator:
                 terms,
                 progress=progress,
             )
-            self._runtime.capture_metrics_state(store)
         return {
             "store": store,
             "review_issues": outcome.issues,
@@ -198,32 +159,16 @@ class Orchestrator:
         *,
         progress: ProgressFn | None,
     ) -> Any:
-        """在书级锁内执行只读 Review，并按配置进入独立 Autofix 发布阶段。"""
-        resumed = self._runtime.measure_stage_call(
-            "review_autofix",
-            self._review_autofix.resume_pending,
-            store,
-            progress=progress,
-        )
+        """Run read-only review under the book lock, then enter the separate optional autofix
+        publisher.
+        """
+        resumed = self._review_autofix.resume_pending(store, progress=progress)
         if resumed is not None:
             return resumed
-        outcome = self._runtime.measure_stage_call(
-            "review",
-            self._review.run_session,
-            store,
-            terms,
-            progress=progress,
-        )
+        outcome = self._review.run_session(store, terms, progress=progress)
         if not self.config.pipeline.review_autofix:
             return outcome
-        return self._runtime.measure_stage_call(
-            "review_autofix",
-            self._review_autofix.run,
-            store,
-            outcome,
-            terms,
-            progress=progress,
-        )
+        return self._review_autofix.run(store, outcome, terms, progress=progress)
 
     def _run_existing_steps(
         self,
@@ -235,16 +180,11 @@ class Orchestrator:
         out_path: str | None = None,
         pdf_engine: str = "weasyprint",
     ) -> dict[str, Any]:
-        """仅从既有状态执行本地收尾阶段，不创建新的翻译任务。"""
-        store = self._runtime.measure_stage_call(
-            "prepare",
-            self._preparation.locate_existing,
-            input_path,
-            progress=progress,
-        )
+        """Run local finalization from existing state without creating a translation task."""
+        store = self._preparation.locate_existing(input_path, progress=progress)
         with store.lock():
             self._preparation.activate(store)
-            result = self._finish_steps_locked(
+            return self._finish_steps_locked(
                 store,
                 input_path=input_path,
                 steps=steps,
@@ -254,28 +194,20 @@ class Orchestrator:
                 out_path=out_path,
                 pdf_engine=pdf_engine,
             )
-            self._runtime.capture_metrics_state(store)
-            return result
 
-    @_record_run_metrics("report", ["report"])
     def run_report(
         self,
         input_path: str,
         *,
         progress: ProgressFn | None = None,
     ) -> dict[str, Any]:
-        """从既有状态重新生成报告，并记录独立运行指标。"""
+        """Regenerate the report from existing state."""
         return self._run_existing_steps(
             input_path,
             {"report"},
             progress=progress,
         )
 
-    @_record_run_metrics(
-        "assemble",
-        ["assemble"],
-        invocation_fields=("out_format", "pdf_engine"),
-    )
     def run_assemble(
         self,
         input_path: str,
@@ -285,13 +217,10 @@ class Orchestrator:
         pdf_engine: str = "weasyprint",
         progress: ProgressFn | None = None,
     ) -> dict[str, Any]:
-        """从既有状态快照导出成品，不等待正在进行的整本翻译。"""
-        store = self._runtime.measure_stage_call(
-            "prepare",
-            self._preparation.locate_existing,
-            input_path,
-            progress=progress,
-        )
+        """Export an existing-state snapshot without waiting for ongoing whole-book
+        translation.
+        """
+        store = self._preparation.locate_existing(input_path, progress=progress)
         self._runtime.log_event(
             store,
             "run_steps_started",
@@ -318,7 +247,6 @@ class Orchestrator:
             "review_dir": None,
         }
 
-    @_record_pipeline_metrics
     def run_steps(
         self,
         input_path: str,
@@ -330,7 +258,7 @@ class Orchestrator:
         out_path: str | None = None,
         pdf_engine: str = "weasyprint",
     ) -> dict[str, Any]:
-        """按需执行步骤子集（可单选可全选）。steps ⊆ ALL_STEPS。"""
+        """Run any requested subset of ALL_STEPS."""
         steps = set(steps)
         run_steps_input = sorted(steps)
         if steps == {"review"}:
@@ -357,15 +285,10 @@ class Orchestrator:
         if "translate" in steps:
             store = self.run(input_path, progress=progress, phase=phase)
         else:
-            store = self._runtime.measure_stage_call(
-                "prepare",
-                self._preparation.prepare,
-                input_path,
-                progress=progress,
-            )
+            store = self._preparation.prepare(input_path, progress=progress)
             self._preparation.activate(store)
         with store.lock():
-            result = self._finish_steps_locked(
+            return self._finish_steps_locked(
                 store,
                 input_path=input_path,
                 steps=steps,
@@ -376,8 +299,6 @@ class Orchestrator:
                 out_path=out_path,
                 pdf_engine=pdf_engine,
             )
-            self._runtime.capture_metrics_state(store)
-            return result
 
     def _finish_steps_locked(
         self,
@@ -392,7 +313,9 @@ class Orchestrator:
         out_path: str | None,
         pdf_engine: str,
     ) -> dict[str, Any]:
-        """在书级锁内依次委托审校、报告和导出收尾步骤并返回结果汇总。"""
+        """Delegate review, reporting and assembly under the book lock and return combined
+        results.
+        """
         self._runtime.log_event(
             store,
             "run_steps_started",
@@ -410,8 +333,7 @@ class Orchestrator:
                 if "review" in steps:
                     if phase:
                         phase("review", "最终审校")
-                    # 先保存此前阶段的增量，使会话 usage.json 只包含 Review 调用。
-                    self._runtime.flush_usage(store, scope="pipeline")
+                    # Flush earlier stage deltas first so session usage.json contains only review calls.
                     terms = self._review.session_terms(store, glossary)
                     outcome = self._run_review_locked(
                         store,
@@ -427,8 +349,8 @@ class Orchestrator:
                 if "report" in steps:
                     if phase:
                         phase("reporting", "生成报告")
-                    if glossary is None:  # pragma: no cover - 由 needs 条件保证
-                        raise RuntimeError("报告生成需要术语库")
+                    if glossary is None:  # pragma: no cover - Guaranteed by the needs condition.
+                        raise RuntimeError("Report generation requires a glossary")
                     report = self._report.build_and_save(
                         store,
                         glossary,
@@ -477,7 +399,7 @@ class Orchestrator:
         out_path: str | None = None,
         pdf_engine: str = "weasyprint",
     ) -> dict[str, Any]:
-        """翻译 → 最终审校 → 报告 → 回填，返回结果汇总。"""
+        """Translate, review, report and assemble, returning combined results."""
         steps = {"translate", "report", "assemble"}
         if self.config.pipeline.review:
             steps.add("review")
