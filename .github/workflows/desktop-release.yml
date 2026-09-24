@@ -80,11 +80,11 @@ jobs:
       - name: 2. Build Standalone Python Worker (PyInstaller)
         shell: bash
         run: |
-          python -m pip install . pyinstaller
+          python -m pip install ./packages/core pyinstaller
           python -m PyInstaller --name wenyi-worker --onefile --clean --noconfirm \
-            --paths . --collect-all trans_novel --collect-all ebooklib --collect-all bs4 --collect-all lxml \
+            --paths packages/core --collect-all wenyi_core --collect-all ebooklib --collect-all bs4 --collect-all lxml \
             --collect-all openai --collect-all pydantic --collect-all yaml \
-            --copy-metadata trans-novel \
+            --copy-metadata wenyi-core \
             --distpath dist/binaries script/worker_entry.py
 
       - name: 3. Build Full Desktop Bundle (With Embedded Python Worker)

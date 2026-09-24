@@ -1,4 +1,4 @@
-from trans_novel.app_worker import main
+from wenyi_core.app_worker import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

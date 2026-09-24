@@ -122,7 +122,7 @@ impl TaskManager {
         } else {
             cmd.args([
                 "-m",
-                "trans_novel.app_worker",
+                "wenyi_core.app_worker",
                 "--task-id",
                 &task_id,
                 "--input",

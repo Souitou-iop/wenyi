@@ -31,7 +31,7 @@ def main() -> int:
     port = free_port(int(os.environ.get("WENYI_WEB_PORT", "8787")))
     env = os.environ.copy()
     env["WENYI_WEB_PORT"] = str(port)
-    command = [sys.executable, "-m", "trans_novel.web"]
+    command = [sys.executable, "-m", "wenyi_core.web"]
     process = subprocess.Popen(command, cwd=ROOT, env=env)
     url = f"http://127.0.0.1:{port}"
     try:

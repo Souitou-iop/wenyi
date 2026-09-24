@@ -141,7 +141,7 @@ impl PythonEnvManager {
         unique
     }
 
-    /// 验证单个可执行文件并探查 trans_novel 模块
+    /// 验证单个可执行文件并探查 wenyi_core 模块
     pub async fn validate_executable(kind: &str, path: &str, workspace_root: Option<&Path>) -> PythonEnvInfo {
         let name = match kind {
             "sidecar" => "内置独立核心引擎 (Sidecar)",
@@ -198,8 +198,8 @@ impl PythonEnvManager {
             };
         }
 
-        // 尝试导入 trans_novel 并打印 Python 版本与实际解释器
-        let py_script = "import sys\ntry:\n    import trans_novel\n    has_wenyi = True\nexcept Exception as e:\n    has_wenyi = False\nprint(f'{sys.version.split()[0]}|{has_wenyi}')";
+        // 尝试导入 wenyi_core 并打印 Python 版本与实际解释器
+        let py_script = "import sys\ntry:\n    import wenyi_core\n    has_wenyi = True\nexcept Exception as e:\n    has_wenyi = False\nprint(f'{sys.version.split()[0]}|{has_wenyi}')";
 
         let mut cmd = Command::new(path);
         cmd.arg("-c").arg(py_script);
@@ -219,9 +219,9 @@ impl PythonEnvManager {
                 let has_wenyi = parts.get(1).map(|v| v.trim() == "True").unwrap_or(false);
 
                 let status_message = if has_wenyi {
-                    "环境就绪，包含文译 (trans_novel) 核心模块".to_string()
+                    "环境就绪，包含文译 (wenyi_core) 核心模块".to_string()
                 } else {
-                    "Python 可用，但未检测到 trans_novel 核心模块（请先执行 uv sync）".to_string()
+                    "Python 可用，但未检测到 wenyi_core 核心模块（请先执行 uv sync）".to_string()
                 };
 
                 PythonEnvInfo {

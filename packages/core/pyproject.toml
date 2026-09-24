@@ -1,0 +1,40 @@
+[project]
+name = "wenyi-core"
+dynamic = ["version"]
+description = "Shared translation engine for multilingual long-form documents."
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.40",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "tenacity>=8.2",
+    "beautifulsoup4>=4.12",
+    "httpx>=0.27",
+    "lxml>=5.0",
+    "ebooklib>=0.18",
+    "pypdf>=6.14.2",
+    "google-genai>=2.13.0",
+    "json-repair>=0.61,<1",
+    "python-docx>=1.2.0",
+    "tiktoken>=0.14.0",
+    "fastapi>=0.115",           # Local web UI service (wenyi_core.web)
+    "uvicorn>=0.34",            # ASGI server for the local web UI
+    "python-multipart>=0.0.20", # Local web UI uploads
+]
+
+[project.optional-dependencies]
+pdf-output = ["weasyprint>=69.0"]
+pdf-output-lite = ["fpdf2>=2.8.5"]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+root = "../.."
+
+[tool.hatch.build.targets.wheel]
+packages = ["wenyi_core"]

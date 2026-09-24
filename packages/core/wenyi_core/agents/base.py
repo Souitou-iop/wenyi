@@ -1,0 +1,160 @@
+"""Shared agent initialization and LLM helpers with optional fallback values.
+Centralize the render-system/user, complete_json and fallback pattern. Business fallback
+semantics belong here, not in the LLM transport layer. Every agent exposes .src for language
+propagation by the pipeline.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from ..config import Config
+from ..llm.base import LLMClient
+from ..llm.json_parser import parse_json_loose
+
+_RAISE = object()  # Sentinel: propagate exceptions when the caller supplies no default.
+_LOGGER = logging.getLogger(__name__)
+
+Messages = list[dict[str, str]]
+
+
+class Agent:
+    def __init__(self, client: LLMClient, config: Config):
+        """Store the shared client and config and cache the current source and target
+        languages.
+        """
+        self.client = client
+        self.config = config
+        self.src = config.source_lang
+        self.tgt = config.target_lang
+
+    def _complete_json_turn(
+        self,
+        messages: Messages,
+        *,
+        operation: str,
+        max_tokens: int | None = None,
+    ) -> tuple[Any, str]:
+        """Run ``complete`` on ``messages`` and return ``(parsed_json, raw_assistant_text)``."""
+        text = self.client.complete(
+            messages,
+            operation=operation,
+            json_mode=True,
+            max_tokens=max_tokens,
+        )
+        return parse_json_loose(text), text
+
+    def _ask_json(
+        self,
+        system: str,
+        user: str,
+        *,
+        operation: str,
+        key: str | None = None,
+        default: Any = _RAISE,
+        max_tokens: int | None = None,
+    ) -> Any:
+        """Send system/user messages through complete_json.
+        Return default on failure, or propagate when no default is supplied (for example,
+        Translator handles alignment retries). With key, use data[key] for dictionaries, a
+        nonempty list directly, or the fallback otherwise.
+        """
+        try:
+            data, _raw = self._complete_json_turn(
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                operation=operation,
+                max_tokens=max_tokens,
+            )
+        except Exception:
+            if default is _RAISE:
+                raise
+            return default
+        if key is None:
+            return data
+        fb = None if default is _RAISE else default
+        if isinstance(data, dict):
+            return data.get(key, fb)
+        return data if data else fb
+
+    def _ask_json_messages(
+        self,
+        messages: Messages,
+        *,
+        operation: str,
+        key: str | None = None,
+        default: Any = _RAISE,
+        max_tokens: int | None = None,
+    ) -> Any:
+        """Like ``_ask_json`` but for an already-built message list (multi-turn continues)."""
+        try:
+            data, _raw = self._complete_json_turn(
+                messages,
+                operation=operation,
+                max_tokens=max_tokens,
+            )
+        except Exception:
+            if default is _RAISE:
+                raise
+            return default
+        if key is None:
+            return data
+        fb = None if default is _RAISE else default
+        if isinstance(data, dict):
+            return data.get(key, fb)
+        return data if data else fb
+
+    def _ask_text(
+        self,
+        system: str,
+        user: str,
+        *,
+        operation: str,
+        default: str = "",
+        max_tokens: int | None = None,
+    ) -> str:
+        """Complete plain text and strip whitespace; return default on failure."""
+        try:
+            return (
+                self.client.complete(
+                    [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    operation=operation,
+                    max_tokens=max_tokens,
+                )
+                or ""
+            ).strip()
+        except Exception:  # noqa: BLE001 - Text helper calls return the configured fallback on failure.
+            return default
+
+    @staticmethod
+    def dict_items(
+        items: Any, *, operation: str = "unknown", field: str = "collection"
+    ) -> list[dict]:
+        """Keep JSON objects, logging invalid types and counts without response content."""
+        if items is None:
+            return []
+        if not isinstance(items, list):
+            _LOGGER.warning(
+                "Ignoring invalid model collection (operation=%s, field=%s): "
+                "expected a JSON array, got %s",
+                operation,
+                field,
+                type(items).__name__,
+            )
+            return []
+        result = [item for item in items if isinstance(item, dict)]
+        discarded = len(items) - len(result)
+        if discarded:
+            _LOGGER.warning(
+                "Ignoring %d non-object items in model collection (operation=%s, field=%s)",
+                discarded,
+                operation,
+                field,
+            )
+        return result
