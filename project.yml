@@ -13,7 +13,7 @@ targets:
     platform: macOS
     sources:
       - path: macos/WenyiMac
-      - path: trans_novel
+      - path: packages/core/wenyi_core
         type: folder
         buildPhase: resources
       - path: config.yaml

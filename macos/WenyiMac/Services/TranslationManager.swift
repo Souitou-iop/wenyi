@@ -27,7 +27,7 @@ final class TranslationManager {
             let output = outputDirectory.appendingPathComponent("\(book.title).zh.epub")
             let process = Process(); let stdout = Pipe(); let stderr = Pipe()
             process.executableURL = URL(fileURLWithPath: runtime.path)
-            process.arguments = ["-m", "trans_novel.app_worker", "--task-id", book.id.uuidString, "--input", source.path, "--output", output.path, "--state-dir", book.stateDirectory, "--config", config.path]
+            process.arguments = ["-m", "wenyi_core.app_worker", "--task-id", book.id.uuidString, "--input", source.path, "--output", output.path, "--state-dir", book.stateDirectory, "--config", config.path]
             var environment = ProcessInfo.processInfo.environment
             environment["DEEPSEEK_API_KEY"] = library.settings.apiKey
             environment["PYTHONPATH"] = Bundle.main.resourceURL?.path

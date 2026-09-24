@@ -1,22 +1,22 @@
-# trans-novel configuration (experimental multilingual fiction translation)
+# Wenyi configuration (experimental multilingual fiction translation)
 # Configure model providers, workflow stages and output here; no code changes are needed.
 
 language:
-  source: auto # auto detects the source language; use an explicit code such as ja / en / ko / ru / de to override
-  target: zh # Target: zh / zh-Hant / en / ja / ko / fr / de / es / it / pt / ru; run languages for the full list
+  source: auto # auto detects the source language; use an explicit code such as ja / en / ko / ru / de / vi to override
+  target: zh # Target: zh / zh-Hant / en / ja / ko / fr / de / es / it / pt / ru / vi; run languages for the full list
 
 # ── LLM ──────────────────────────────────────────────────────────────────
 llm:
   preset: deepseek # All tiers: deepseek-flash, thinking enabled, reasoning_effort high
   # Add providers, models and routes to override individual operations.
-  # Inspect effective settings with: trans-novel models list
+  # Inspect effective settings with: wenyi models list
 
 # ── Segmentation ─────────────────────────────────────────────────────────────────
 segment:
-  # Target batch size in characters, used as a rough token estimate.
-  max_chars_per_batch: 1800
-  # Split longer paragraphs at sentence boundaries; merge continuations back during export.
-  max_chars_per_segment: 1200
+  # Target batch size in tokens (tiktoken cl100k_base).
+  max_tokens_per_batch: 1800
+  # Split longer paragraphs at sentence boundaries by the same token budget; merge on export.
+  max_tokens_per_segment: 1200
 
 # ── Pipeline options (quality and cost)───────────────────────────────────────────
 pipeline:
